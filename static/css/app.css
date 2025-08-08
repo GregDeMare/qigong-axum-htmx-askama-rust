@@ -1,0 +1,5 @@
+/* Add designer's CSS here */
+body { font-family: sans-serif; margin: 0; padding: 0; }
+header { padding: 1rem; background: #eee; }
+nav a { margin-right: 1rem; }
+main { padding: 1rem; }

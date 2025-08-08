@@ -1,0 +1,8 @@
+{% for p in products %}
+<tr>
+    <td>{{ p.name }}</td>
+    <td>{{ "{:.2}"|format(p.price) }} €</td>
+</tr>
+{% else %}
+<tr><td colspan="2">No results.</td></tr>
+{% endfor %}

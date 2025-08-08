@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+
+<form
+        hx-get="/products"
+        hx-target="#rows"
+        hx-trigger="change, keyup delay:250ms from:find('input')"
+        hx-push-url="true">
+
+    <input type="text" name="q"
+           value="{{ q_value }}"
+           placeholder="Search by name">
+
+    <input type="number" step="0.01" name="max_price"
+           value="{{ max_price_value }}"
+           placeholder="Max price">
+</form>
+
+<table>
+    <thead><tr><th>Name</th><th>Price</th></tr></thead>
+    <tbody id="rows">
+    {% include "_rows.html" %}
+    </tbody>
+</table>
+{% endblock %}
