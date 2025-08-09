@@ -1,0 +1,22 @@
+<tr id="row-{{ m.id }}">
+    <td>{% if m.imgname != "" %}<img class="thumb" src="/static/img/{{ m.imgname }}" alt="{{ m.name }}">{% endif %}</td>
+    <td><a href="/models/{{ m.id }}">{{ m.name }}</a></td>
+    <td>{{ m.nameShort }}</td>
+    <td>{{ m.score }} ({{ m.scoreShort }})</td>
+    <td>{{ m.numOfTimes }} ({{ m.numOfTimesShort }})</td>
+    <td>{{ m.description }}</td>
+    <td class="muted">{{ m.comments }}</td>
+    <td>
+        <button
+                type="button"
+                hx-get="/models/{{ m.id }}/edit"
+                hx-target="#row-{{ m.id }}"
+                hx-swap="outerHTML">Edit</button>
+        <button
+                type="button"
+                hx-delete="/models/{{ m.id }}"
+                hx-confirm="Delete this model?"
+                hx-target="#row-{{ m.id }}"
+                hx-swap="outerHTML">Delete</button>
+    </td>
+</tr>

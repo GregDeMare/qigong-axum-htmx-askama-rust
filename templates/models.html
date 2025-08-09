@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+
+<div class="toolbar">
+    <form
+            hx-get="/models"
+            hx-target="#rows"
+            hx-trigger="change, keyup delay:250ms from:find('input')"
+            hx-push-url="true">
+        <input type="text" name="q" value="{{ q_value }}" placeholder="Search name/desc">
+        <input type="number" name="min_score" value="{{ min_score_value }}" placeholder="Min score">
+        <select name="sort">
+            <option value="">Sort…</option>
+            <option value="name_asc"  {% if sort_value=="name_asc" %}selected{% endif %}>Name ↑</option>
+            <option value="name_desc" {% if sort_value=="name_desc" %}selected{% endif %}>Name ↓</option>
+            <option value="score_desc" {% if sort_value=="score_desc" %}selected{% endif %}>Score ↓</option>
+            <option value="score_asc"  {% if sort_value=="score_asc" %}selected{% endif %}>Score ↑</option>
+            <option value="times_desc" {% if sort_value=="times_desc" %}selected{% endif %}>#Times ↓</option>
+            <option value="times_asc"  {% if sort_value=="times_asc" %}selected{% endif %}>#Times ↑</option>
+        </select>
+    </form>
+
+    <button
+            hx-get="/models/new"
+            hx-target="#modal"
+            hx-swap="innerHTML">New Model</button>
+</div>
+
+<table>
+    <thead>
+    <tr>
+        <th></th>
+        <th>Name</th>
+        <th>Short</th>
+        <th>Score</th>
+        <th>#Times</th>
+        <th>Description</th>
+        <th>Comments</th>
+        <th></th>
+    </tr>
+    </thead>
+    <tbody id="rows">
+    {% include "_rows.html" %}
+    </tbody>
+</table>
+{% endblock %}

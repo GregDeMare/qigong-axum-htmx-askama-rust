@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Welcome</h1>
-<p>This is a minimal HTML-first “SPA-like” stack with Axum + Askama + htmx.</p>
-<p>Go to the <a href="/products">Products</a> page to try live filtering.</p>
+<h1>{{ title }}</h1>
+<p>DB-backed CRUD with htmx partial updates.</p>
+<p><a href="/models">Go to Models</a></p>
 {% endblock %}

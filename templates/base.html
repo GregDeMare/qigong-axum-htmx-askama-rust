@@ -2,26 +2,41 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>{{ title }} • Rust + htmx</title>
-    <link rel="stylesheet" href="/static/css/app.css">
+    <title>{{ title }}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="https://unpkg.com/htmx.org@2.0.3"></script>
-    <script>
-        document.addEventListener("DOMContentLoaded", () => {
-            document.body.setAttribute("hx-boost", "true");
-            document.body.setAttribute("hx-push-url", "true");
-        });
-    </script>
+    <link rel="stylesheet" href="/static/css/app.css">
+    <style>
+        body { font-family: system-ui, sans-serif; margin: 2rem; }
+        header { display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem; }
+        header a { text-decoration: none; }
+        table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+        th, td { border-bottom: 1px solid #eee; padding: .5rem; text-align: left; vertical-align: top; }
+        .muted { color: #666; }
+        .thumb { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; }
+        .toolbar { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+        .modal { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: none; align-items: center; justify-content: center; }
+        .modal.open { display: flex; }
+        .modal > div { background: white; padding: 1rem; border-radius: 8px; width: min(720px, 92vw); }
+    </style>
 </head>
-<body>
+<body hx-boost="true" hx-push-url="true">
 <header>
-    <nav>
-        <a href="/">Home</a>
-        <a href="/products">Products</a>
-    </nav>
+    <a href="/">Home</a>
+    <a href="/models">Models</a>
 </header>
 <main>
     {% block content %}{% endblock %}
 </main>
+
+<div id="modal" class="modal"></div>
+<script>
+    document.addEventListener('click', (e) => {
+        if (e.target.id === 'modal') {
+            // click outside closes modal by replacing it with an empty modal shell
+            e.target.outerHTML = '<div id="modal" class="modal"></div>';
+        }
+    });
+</script>
 </body>
 </html>

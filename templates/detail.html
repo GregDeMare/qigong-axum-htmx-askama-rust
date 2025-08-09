@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ item.name }} <span class="muted">(#{{ item.id }})</span></h1>
+<div style="display:grid;grid-template-columns:200px 1fr;gap:1rem;">
+    <div>{% if item.imgname != "" %}<img class="thumb" src="/static/img/{{ item.imgname }}" alt="{{ item.name }}" style="width:160px;height:160px;">{% endif %}</div>
+    <div>
+        <p><strong>Short:</strong> {{ item.nameShort }}</p>
+        <p><strong>Score:</strong> {{ item.score }} ({{ item.scoreShort }})</p>
+        <p><strong>#Times:</strong> {{ item.numOfTimes }} ({{ item.numOfTimesShort }})</p>
+    </div>
+</div>
+<h2>Description</h2>
+<p>{{ item.description }}</p>
+<h2>Comments</h2>
+<p class="muted">{{ item.comments }}</p>
+<p><a href="/models">← Back to list</a></p>
+{% endblock %}

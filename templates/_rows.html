@@ -1,8 +1,5 @@
-{% for p in products %}
-<tr>
-    <td>{{ p.name }}</td>
-    <td>{{ "{:.2}"|format(p.price) }} €</td>
-</tr>
+{% for m in items %}
+{% include "_row.html" %}
 {% else %}
-<tr><td colspan="2">No results.</td></tr>
+<tr><td colspan="8" class="muted">No results.</td></tr>
 {% endfor %}

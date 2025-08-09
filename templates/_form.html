@@ -1,0 +1,40 @@
+<div class="modal open" id="modal">
+    <div>
+        <h2>{{ submit_label }} Model</h2>
+        {% if error != "" %}<p class="muted">Error: {{ error }}</p>{% endif %}
+
+        <form
+                hx-{{ method }}="{{ action }}"
+                hx-target="#{{ target_id }}"
+                hx-swap="{{ swap_mode }}">
+            {% if values.id.is_some() %}
+            <input type="hidden" name="id" value="{{ values.id.unwrap() }}">
+            {% endif %}
+
+            <div class="grid">
+                <label>Name <input type="text" name="name" value="{{ values.name }}" required></label>
+                <label>Short <input type="text" name="nameShort" value="{{ values.name_short }}" required></label>
+                <label>Score <input type="number" name="score" value="{{ values.score }}"></label>
+                <label>Score short <input type="number" name="scoreShort" value="{{ values.scoreShort }}"></label>
+                <label>#Times <input type="number" name="numOfTimes" value="{{ values.numOfTimes }}"></label>
+                <label>#Times short <input type="number" name="numOfTimesShort" value="{{ values.numOfTimesShort }}"></label>
+                <label>Image filename <input type="text" name="imgname" value="{{ values.imgname }}"></label>
+            </div>
+
+            <label>Description<br>
+                <textarea name="description" rows="3">{{ values.description }}</textarea>
+            </label>
+            <label>Comments<br>
+                <textarea name="comments" rows="2">{{ values.comments }}</textarea>
+            </label>
+
+            <div style="margin-top:.75rem; display:flex; gap:.5rem;">
+                <button type="submit">{{ submit_label }}</button>
+                <button type="button"
+                        hx-get="/models"
+                        hx-target="#modal"
+                        hx-swap="outerHTML">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
