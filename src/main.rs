@@ -29,6 +29,8 @@ pub struct Model {
     #[sqlx(rename = "score_short")]
     pub scoreShort: i32,
     pub imgname: String,
+    pub long_url: String,
+    pub short_url: String,
 }
 
 #[derive(Clone)]
@@ -60,6 +62,8 @@ struct ModelForm {
     #[serde(default)]
     scoreShort: i32,
     imgname: String,
+    #[serde(default)] long_url: String,
+    #[serde(default)] short_url: String,
 }
 
 #[derive(Template)]
@@ -147,7 +151,30 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
     Ok(())
 }
+fn normalize_dropbox_url(u: &str) -> Result<String, String> {
+    // Accept any https URL; for Dropbox, ensure it streams
+    if !u.starts_with("http://") && !u.starts_with("https://") {
+        return Err("URL must start with http:// or https://".into());
+    }
+    if u.contains("dropbox.com") {
+        // common: turn preview into raw stream
+        if u.contains("dl=0") { return Ok(u.replace("dl=0", "raw=1")); }
+        if u.contains("dl=1") { return Ok(u.replace("dl=1", "raw=1")); }
+        if u.contains("raw=1") { return Ok(u.to_string()); }
+        // no query? append raw=1
+        if u.contains('?') { return Ok(format!("{u}&raw=1")); }
+        return Ok(format!("{u}?raw=1"));
+    }
+    Ok(u.to_string())
+}
 
+fn looks_like_mp4(u: &str) -> bool {
+    u.to_ascii_lowercase().contains(".mp4")
+}
+
+fn is_plain_https(u: &str) -> bool {
+    u.starts_with("https://") || u.starts_with("http://")
+}
 async fn bootstrap(pool: &PgPool) -> anyhow::Result<()> {
     sqlx::query(r#"
         CREATE TABLE IF NOT EXISTS models (
@@ -189,7 +216,7 @@ async fn models_list(
     Query(params): Query<ListParams>,
 ) -> Html<String> {
     let mut qb = QueryBuilder::new(
-        "SELECT id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,imgname FROM models"
+        "SELECT id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,imgname, long_url, short_url FROM models"
     );
 
     let mut sep = " WHERE ";
@@ -208,11 +235,11 @@ async fn models_list(
     qb.push(" ORDER BY ");
     match params.sort.as_deref() {
         Some("name_asc") => qb.push(" name ASC "),
-        Some("name_desc") => qb.push(" name DESC "),
-        Some("score_asc") => qb.push(" score ASC "),
-        Some("score_desc") => qb.push(" score DESC "),
-        Some("times_asc") => qb.push(" num_of_times ASC "),
-        Some("times_desc") => qb.push(" num_of_times DESC "),
+        // Some("name_desc") => qb.push(" name DESC "),
+        // Some("score_asc") => qb.push(" score ASC "),
+        // Some("score_desc") => qb.push(" score DESC "),
+        // Some("times_asc") => qb.push(" num_of_times ASC "),
+        // Some("times_desc") => qb.push(" num_of_times DESC "),
         _ => qb.push(" id ASC "),
     };
 
@@ -241,7 +268,7 @@ async fn models_list(
 // DETAIL
 async fn model_detail(State(state): State<AppState>, Path(id): Path<i32>) -> Html<String> {
     let item = sqlx::query_as::<_, Model>(
-        "SELECT id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,imgname FROM models WHERE id=$1"
+        "SELECT id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,imgname, long_url, short_url FROM models WHERE id=$1"
     ).bind(id).fetch_optional(&*state.pool).await.unwrap();
 
     match item {
@@ -290,9 +317,9 @@ async fn model_create(
     }
 
     let q = r#"
-        INSERT INTO models (id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,imgname)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-        RETURNING id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,imgname
+        INSERT INTO models (id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,imgname, long_url, short_url)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        RETURNING id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,imgname, long_url, short_url
     "#;
 
     let item: Model = sqlx::query_as(q)
@@ -306,6 +333,8 @@ async fn model_create(
         .bind(form.score)
         .bind(form.scoreShort)
         .bind(&form.imgname)
+        .bind(&form.long_url)
+        .bind(&form.short_url)
         .fetch_one(&*state.pool).await.unwrap();
 
     Html(RowTpl { m: &item }.render().unwrap())
@@ -317,7 +346,7 @@ async fn model_edit_form(
     Path(id): Path<i32>,
 ) -> Html<String> {
     let item: Option<Model> = sqlx::query_as(
-        "SELECT id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,imgname FROM models WHERE id=$1"
+        "SELECT id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,imgname, long_url, short_url FROM models WHERE id=$1"
     ).bind(id).fetch_optional(&*state.pool).await.unwrap();
 
     if let Some(i) = item {
@@ -332,6 +361,8 @@ async fn model_edit_form(
             score: i.score,
             scoreShort: i.scoreShort,
             imgname: i.imgname,
+            long_url: i.long_url,
+            short_url: i.short_url
         };
         Html(FormRowTpl { values: &values, error: "" }.render().unwrap())
     } else {
@@ -361,9 +392,9 @@ async fn model_update(
     let q = r#"
         UPDATE models SET
           name=$1, name_short=$2, description=$3, comments=$4,
-          num_of_times=$5, num_of_times_short=$6, score=$7, score_short=$8, imgname=$9
+          num_of_times=$5, num_of_times_short=$6, score=$7, score_short=$8, imgname=$9, long_url=$10, short_url=$11
         WHERE id=$10
-        RETURNING id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,imgname
+        RETURNING id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,imgname,long_url,short_url
     "#;
 
     let item: Option<Model> = sqlx::query_as(q)
@@ -376,6 +407,8 @@ async fn model_update(
         .bind(form.score)
         .bind(form.scoreShort)
         .bind(&form.imgname)
+        .bind(&form.long_url)
+        .bind(&form.short_url)
         .bind(id)
         .fetch_optional(&*state.pool).await.unwrap();
 
@@ -401,7 +434,7 @@ async fn model_video_row(
 ) -> Html<String> {
     let item = sqlx::query_as::<_, Model>(
         "SELECT id,name,name_short,description,comments,
-                num_of_times,num_of_times_short,score,score_short,imgname
+                num_of_times,num_of_times_short,score,score_short,imgname,long_url,short_url
          FROM models WHERE id=$1"
     )
         .bind(id)
@@ -411,12 +444,18 @@ async fn model_video_row(
 
     if let Some(m) = item {
         let use_short = matches!(params.kind.as_deref(), Some("short"));
-        let filename = if use_short {
-            format!("{}.mp4", m.nameShort)
-        } else {
-            format!("{}.mp4", m.name)
-        };
-        let src = format!("/static/video/{}", filename);
+        let src = if use_short { m.short_url.clone() } else { m.long_url.clone() };
+        // ensure normalized before feeding to the template (in case legacy rows exist)
+        let src = normalize_dropbox_url(&src).unwrap_or(src);
+
+        // let use_short = matches!(params.kind.as_deref(), Some("short"));
+        // let filename = if use_short {
+        //     format!("{}.mp4", m.nameShort)
+        // } else {
+        //     format!("{}.mp4", m.name)
+        // };
+        // let src = format!("/static/video/{}", filename);
+
         let title = if use_short {
             format!("{} — short", m.nameShort)
         } else {
