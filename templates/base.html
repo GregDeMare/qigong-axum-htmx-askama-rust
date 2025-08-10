@@ -38,5 +38,23 @@
         }
     });
 </script>
+<script src="https://unpkg.com/htmx.org@2.0.3"></script>
+<script>htmx.logAll();</script>
+<script>
+    // Pause all players before a new request (e.g., clicking another row)
+    document.addEventListener('htmx:beforeRequest', () => {
+        document.querySelectorAll('tr[id^="video-row-"] video').forEach(v => {
+            try { v.pause(); } catch {}
+        });
+    });
+</script>
+<script>
+    // Close any open video row on ESC
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            document.querySelectorAll('tr[id^="video-row-"]').forEach(el => el.remove());
+        }
+    });
+</script>
 </body>
 </html>

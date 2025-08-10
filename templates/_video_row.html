@@ -1,0 +1,38 @@
+<tr id="video-row-{{ id }}">
+    <td colspan="{{ colspan }}" style="padding:0; background:#111;">
+        <div class="video-panel" style="display:block; padding:10px; background:#222; color:#eee; border-top:1px solid #444;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <strong>{{ title }}</strong>
+                <button type="button" onclick="document.getElementById('video-row-{{ id }}')?.remove()">Close</button>
+            </div>
+
+            <div style="font-size:12px; opacity:.8; margin-bottom:6px;">
+                Source: <code>{{ src }}</code>
+            </div>
+
+            <video id="player-{{ id }}"
+                   controls
+                   preload="auto"
+                   poster="{{ poster }}"
+                   style="display:block; width:100%; min-height:300px; background:#000; outline:3px solid red;">
+                <source src="{{ src }}" type="video/mp4">
+            </video>
+
+            <div id="err-{{ id }}" style="color:#ff6b6b; margin-top:8px; display:none;"></div>
+            <script>
+                (function(){
+                    var v = document.getElementById('player-{{ id }}');
+                    var err = document.getElementById('err-{{ id }}');
+                    if (!v) return;
+                    v.addEventListener('error', function(){
+                        var code = v.error && v.error.code ? v.error.code : 'unknown';
+                        err.textContent = 'Video error #' + code + ' (codec or load issue).';
+                        err.style.display = 'block';
+                    });
+                    // kick the browser in case layout collapsed
+                    requestAnimationFrame(function(){ v.load(); });
+                })();
+            </script>
+        </div>
+    </td>
+</tr>

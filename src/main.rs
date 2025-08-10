@@ -105,6 +105,17 @@ struct FormTpl<'a> {
     error: &'a str,
 }
 
+#[derive(Deserialize)]
+struct VideoParams { kind: Option<String> } // "long" | "short"
+
+#[derive(Template)]
+#[template(path = "_video_row.html")]
+struct VideoRowTpl {
+    id: i32,
+    poster: String,
+    src: String,
+    title: String,
+    colspan: usize,}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -124,6 +135,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/models/new", get(model_new_form))
         .route("/models/:id", get(model_detail).put(model_update).delete(model_delete))
         .route("/models/:id/edit", get(model_edit_form))
+        .route("/models/:id/video", get(model_video_row))
         // static
         .with_state(state)
         .nest_service("/static", ServeDir::new("static"))
@@ -381,3 +393,46 @@ async fn model_delete(
     let _ = sqlx::query("DELETE FROM models WHERE id=$1").bind(id).execute(&*state.pool).await;
     Html(String::new())
 }
+
+async fn model_video_row(
+    State(state): State<AppState>,
+    Path(id): Path<i32>,
+    Query(params): Query<VideoParams>,
+) -> Html<String> {
+    let item = sqlx::query_as::<_, Model>(
+        "SELECT id,name,name_short,description,comments,
+                num_of_times,num_of_times_short,score,score_short,imgname
+         FROM models WHERE id=$1"
+    )
+        .bind(id)
+        .fetch_optional(&*state.pool)
+        .await
+        .unwrap();
+
+    if let Some(m) = item {
+        let use_short = matches!(params.kind.as_deref(), Some("short"));
+        let filename = if use_short {
+            format!("{}.mp4", m.nameShort)
+        } else {
+            format!("{}.mp4", m.name)
+        };
+        let src = format!("/static/video/{}", filename);
+        let title = if use_short {
+            format!("{} — short", m.nameShort)
+        } else {
+            format!("{} — long", m.name)
+        };
+        let poster = format!("/static/img/{}", m.imgname);
+
+        return Html(VideoRowTpl {
+            id: m.id,
+            poster,
+            src,
+            title,
+            colspan: 8,
+        }.render().unwrap());
+    }
+
+    Html("<tr><td colspan=\"8\">Not found</td></tr>".into())
+}
+

@@ -1,7 +1,28 @@
 <tr id="row-{{ m.id }}">
     <td>{% if m.imgname != "" %}<img class="thumb" src="/static/img/{{ m.imgname }}" alt="{{ m.name }}">{% endif %}</td>
-    <td><a href="/models/{{ m.id }}">{{ m.name }}</a></td>
-    <td>{{ m.nameShort }}</td>
+
+    <!-- Name: click to insert LONG video row after this row -->
+    <td>
+        <a href="#"
+           hx-get="/models/{{ m.id }}/video?kind=long"
+           hx-target="closest tr"
+           hx-swap="afterend settle:250ms"
+           hx-on="htmx:beforeRequest: document.querySelectorAll('tr[id^=video-row-]').forEach(el => el.remove());"
+           onclick="const r=this.closest('tr'); const n=r&&r.nextElementSibling; if(n && n.id==='video-row-{{ m.id }}'){ n.remove(); return false; } return false;">
+            {{ m.name }}
+        </a>    </td>
+
+    <!-- Short name: click to insert SHORT video row after this row -->
+    <td>
+        <a href="#"
+           hx-get="/models/{{ m.id }}/video?kind=short"
+           hx-target="closest tr"
+           hx-swap="afterend settle:250ms"
+           hx-on="htmx:beforeRequest: document.querySelectorAll('tr[id^=video-row-]').forEach(el => el.remove());"
+           onclick="const r=this.closest('tr'); const n=r&&r.nextElementSibling; if(n && n.id==='video-row-{{ m.id }}'){ n.remove(); return false; } return false;">
+            {{ m.nameShort }}
+        </a>    </td>
+
     <td>{{ m.score }} ({{ m.scoreShort }})</td>
     <td>{{ m.numOfTimes }} ({{ m.numOfTimesShort }})</td>
     <td>{{ m.description }}</td>
