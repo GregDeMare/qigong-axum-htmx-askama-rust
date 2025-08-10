@@ -56,5 +56,28 @@
         }
     });
 </script>
+<script>
+    // Close (and pause) any open video row before ANY new htmx request runs.
+    document.addEventListener('htmx:beforeRequest', () => {
+        // Pause players first
+        document.querySelectorAll('tr[id^="video-row-"] video').forEach(v => {
+            try { v.pause(); } catch {}
+        });
+        // Then remove rows
+        document.querySelectorAll('tr[id^="video-row-"]').forEach(el => el.remove());
+    });
+
+    // Optional: smooth-scroll the newly inserted video row into view
+    document.addEventListener('htmx:afterSwap', (e) => {
+        const target = e.target;                  // the element we swapped into (your <tr>)
+        const inserted = target?.nextElementSibling;
+        if (inserted && inserted.id?.startsWith('video-row-')) {
+            requestAnimationFrame(() => {
+                inserted.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                inserted.querySelector('video')?.focus?.();
+            });
+        }
+    });
+</script>
 </body>
 </html>

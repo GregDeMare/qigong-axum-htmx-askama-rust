@@ -235,11 +235,11 @@ async fn models_list(
     qb.push(" ORDER BY ");
     match params.sort.as_deref() {
         Some("name_asc") => qb.push(" name ASC "),
-        // Some("name_desc") => qb.push(" name DESC "),
-        // Some("score_asc") => qb.push(" score ASC "),
-        // Some("score_desc") => qb.push(" score DESC "),
-        // Some("times_asc") => qb.push(" num_of_times ASC "),
-        // Some("times_desc") => qb.push(" num_of_times DESC "),
+        Some("name_desc") => qb.push(" name DESC "),
+        Some("score_asc") => qb.push(" score ASC "),
+        Some("score_desc") => qb.push(" score DESC "),
+        Some("times_asc") => qb.push(" num_of_times ASC "),
+        Some("times_desc") => qb.push(" num_of_times DESC "),
         _ => qb.push(" id ASC "),
     };
 
@@ -248,23 +248,32 @@ async fn models_list(
         vec![]
     });
 
-    if headers.get("HX-Request").is_some() {
+    let is_hx = headers.get("HX-Request").is_some();
+    let hx_target = headers
+        .get("HX-Target")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    // Only send the fragment when the request is explicitly targeting the table body
+    if is_hx && hx_target == "rows" {
         return Html(RowsTpl { items: &items }.render().unwrap());
     }
 
+    // otherwise, render full page (so headers appear)
     let q_value = params.q.unwrap_or_default();
     let min_score_value = params.min_score.map(|v| v.to_string()).unwrap_or_default();
     let sort_value = params.sort.unwrap_or_default();
 
     Html(ModelsTpl {
-        title: "Models",
+        title: "Qigong Videos",
         items: &items,
         q_value: &q_value,
         min_score_value: &min_score_value,
         sort_value: &sort_value,
-    }.render().unwrap())
+    }
+        .render()
+        .unwrap())
 }
-
 // DETAIL
 async fn model_detail(State(state): State<AppState>, Path(id): Path<i32>) -> Html<String> {
     let item = sqlx::query_as::<_, Model>(

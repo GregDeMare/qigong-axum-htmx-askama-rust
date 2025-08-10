@@ -11,6 +11,8 @@
            onclick="const r=this.closest('tr'); const n=r&&r.nextElementSibling; if(n && n.id==='video-row-{{ m.id }}'){ n.remove(); return false; } return false;">
             {{ m.name }}
         </a>    </td>
+    <td>{{ m.score }}</td>
+    <td>{{ m.numOfTimes }}</td>
 
     <!-- Short name: click to insert SHORT video row after this row -->
     <td>
@@ -23,8 +25,8 @@
             {{ m.nameShort }}
         </a>    </td>
 
-    <td>{{ m.score }} ({{ m.scoreShort }})</td>
-    <td>{{ m.numOfTimes }} ({{ m.numOfTimesShort }})</td>
+    <td>{{ m.scoreShort }}</td>
+    <td>{{ m.numOfTimesShort }}</td>
     <td>{{ m.description }}</td>
     <td class="muted">{{ m.comments }}</td>
     <td>
