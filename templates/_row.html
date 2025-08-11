@@ -1,5 +1,5 @@
 <tr id="row-{{ m.id }}">
-    <td>{% if m.imgname != "" %}<img class="thumb" src="/static/img/{{ m.imgname }}" alt="{{ m.name }}">{% endif %}</td>
+    <td>{% if m.image_name != "" %}<img class="thumb" src="/static/img/{{ m.image_name }}" alt="{{ m.name }}">{% endif %}</td>
 
     <!-- Name: click to insert LONG video row after this row -->
     <td>
@@ -12,7 +12,7 @@
             {{ m.name }}
         </a>    </td>
     <td>{{ m.score }}</td>
-    <td>{{ m.numOfTimes }}</td>
+    <td>{{ m.num_of_times }}</td>
 
     <!-- Short name: click to insert SHORT video row after this row -->
     <td>
@@ -22,11 +22,11 @@
            hx-swap="afterend settle:250ms"
            hx-on="htmx:beforeRequest: document.querySelectorAll('tr[id^=video-row-]').forEach(el => el.remove());"
            onclick="const r=this.closest('tr'); const n=r&&r.nextElementSibling; if(n && n.id==='video-row-{{ m.id }}'){ n.remove(); return false; } return false;">
-            {{ m.nameShort }}
+            {{ m.name_short }}
         </a>    </td>
 
-    <td>{{ m.scoreShort }}</td>
-    <td>{{ m.numOfTimesShort }}</td>
+    <td>{{ m.score_short }}</td>
+    <td>{{ m.num_of_times_short }}</td>
     <td>{{ m.description }}</td>
     <td class="muted">{{ m.comments }}</td>
     <td>

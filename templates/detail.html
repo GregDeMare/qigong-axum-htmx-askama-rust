@@ -2,11 +2,11 @@
 {% block content %}
 <h1>{{ item.name }} <span class="muted">(#{{ item.id }})</span></h1>
 <div style="display:grid;grid-template-columns:200px 1fr;gap:1rem;">
-    <div>{% if item.imgname != "" %}<img class="thumb" src="/static/img/{{ item.imgname }}" alt="{{ item.name }}" style="width:160px;height:160px;">{% endif %}</div>
+    <div>{% if item.image_name != "" %}<img class="thumb" src="/static/img/{{ item.image_name }}" alt="{{ item.name }}" style="width:160px;height:160px;">{% endif %}</div>
     <div>
-        <p><strong>Short:</strong> {{ item.nameShort }}</p>
-        <p><strong>Score:</strong> {{ item.score }} ({{ item.scoreShort }})</p>
-        <p><strong>#Times:</strong> {{ item.numOfTimes }} ({{ item.numOfTimesShort }})</p>
+        <p><strong>Short:</strong> {{ item.name_short }}</p>
+        <p><strong>Score:</strong> {{ item.score }} ({{ item.score_short }})</p>
+        <p><strong>#Times:</strong> {{ item.num_of_times }} ({{ item.num_of_times_short }})</p>
     </div>
 </div>
 <h2>Description</h2>

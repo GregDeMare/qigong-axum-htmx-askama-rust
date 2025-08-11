@@ -17,18 +17,14 @@ use tracing::{error, info};
 pub struct Model {
     pub id: i32,
     pub name: String,
-    #[sqlx(rename = "name_short")]
-    pub nameShort: String,
+    pub name_short: String,
     pub description: String,
     pub comments: String,
-    #[sqlx(rename = "num_of_times")]
-    pub numOfTimes: i32,
-    #[sqlx(rename = "num_of_times_short")]
-    pub numOfTimesShort: i32,
+    pub num_of_times: i32,
+    pub num_of_times_short: i32,
     pub score: i32,
-    #[sqlx(rename = "score_short")]
-    pub scoreShort: i32,
-    pub imgname: String,
+    pub score_short: i32,
+    pub image_name: String,
     pub long_url: String,
     pub short_url: String,
 }
@@ -49,21 +45,16 @@ struct ListParams {
 struct ModelForm {
     id: Option<i32>, // only for edit
     name: String,
-    #[serde(rename = "nameShort")]
     name_short: String,
     description: String,
     comments: String,
-    #[serde(default)]
-    numOfTimes: i32,
-    #[serde(default)]
-    numOfTimesShort: i32,
-    #[serde(default)]
+    num_of_times: i32,
+    num_of_times_short: i32,
     score: i32,
-    #[serde(default)]
-    scoreShort: i32,
-    imgname: String,
-    #[serde(default)] long_url: String,
-    #[serde(default)] short_url: String,
+    score_short: i32,
+    image_name: String,
+    long_url: String,
+    short_url: String,
 }
 
 #[derive(Template)]
@@ -187,7 +178,7 @@ async fn bootstrap(pool: &PgPool) -> anyhow::Result<()> {
             num_of_times_short  INTEGER NOT NULL,
             score               INTEGER NOT NULL,
             score_short         INTEGER NOT NULL,
-            imgname             TEXT NOT NULL,
+            image_name          TEXT NOT NULL,
             long_url            TEXT NOT NULL,
             short_url           TEXT NOT NULL
         );
@@ -196,7 +187,7 @@ async fn bootstrap(pool: &PgPool) -> anyhow::Result<()> {
     let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM models").fetch_one(pool).await?;
     if count == 0 {
         sqlx::query(r#"
-            INSERT INTO models (id, name, name_short, description, comments, num_of_times, num_of_times_short, score, score_short, imgname, long_url, short_url)
+            INSERT INTO models (id, name, name_short, description, comments, num_of_times, num_of_times_short, score, score_short, image_name, long_url, short_url)
             VALUES
               (1,'April01','April01Short','Side to side look at hands','',2,1,4,4,'April01.png', 'https://www.dropbox.com/scl/fi/jbp8cca0t9lmm1wh8pewx/April01.mp4?rlkey=rdwxc13kbmk2oihd1tb0i1ci1&dl=0', 'https://www.dropbox.com/scl/fi/me6tdolc7mt4zr7s4f4p1/April01Short.mp4?rlkey=2dfkcf10t3qfihfmrfclp5mqs&dl=0'),
               (2,'April04','April04Short','Flows focused on the White Crane','',3,4,4,3,'April04.png', 'https://www.dropbox.com/scl/fi/ppqw7r4amekpnxk3t5ouy/April04.mp4?rlkey=cz04vy5u0rwce9hg8nvtlk3p1&dl=0', 'https://www.dropbox.com/scl/fi/1nkv3brh8ruj3c87clfwt/April04Short.mp4?rlkey=97car8u968b1w0xkbyg7uirxi&dl=0'),
@@ -222,7 +213,7 @@ async fn models_list(
     Query(params): Query<ListParams>,
 ) -> Html<String> {
     let mut qb = QueryBuilder::new(
-        "SELECT id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,imgname, long_url, short_url FROM models"
+        "SELECT id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,image_name, long_url, short_url FROM models"
     );
 
     let mut sep = " WHERE ";
@@ -283,7 +274,7 @@ async fn models_list(
 // DETAIL
 async fn model_detail(State(state): State<AppState>, Path(id): Path<i32>) -> Html<String> {
     let item = sqlx::query_as::<_, Model>(
-        "SELECT id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,imgname, long_url, short_url FROM models WHERE id=$1"
+        "SELECT id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,image_name, long_url, short_url FROM models WHERE id=$1"
     ).bind(id).fetch_optional(&*state.pool).await.unwrap();
 
     match item {
@@ -332,9 +323,9 @@ async fn model_create(
     }
 
     let q = r#"
-        INSERT INTO models (id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,imgname, long_url, short_url)
+        INSERT INTO models (id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,image_name, long_url, short_url)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-        RETURNING id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,imgname, long_url, short_url
+        RETURNING id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,image_name, long_url, short_url
     "#;
 
     let item: Model = sqlx::query_as(q)
@@ -343,11 +334,11 @@ async fn model_create(
         .bind(&form.name_short)
         .bind(&form.description)
         .bind(&form.comments)
-        .bind(form.numOfTimes)
-        .bind(form.numOfTimesShort)
+        .bind(form.num_of_times)
+        .bind(form.num_of_times_short)
         .bind(form.score)
-        .bind(form.scoreShort)
-        .bind(&form.imgname)
+        .bind(form.score_short)
+        .bind(&form.image_name)
         .bind(&form.long_url)
         .bind(&form.short_url)
         .fetch_one(&*state.pool).await.unwrap();
@@ -361,21 +352,21 @@ async fn model_edit_form(
     Path(id): Path<i32>,
 ) -> Html<String> {
     let item: Option<Model> = sqlx::query_as(
-        "SELECT id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,imgname, long_url, short_url FROM models WHERE id=$1"
+        "SELECT id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,image_name, long_url, short_url FROM models WHERE id=$1"
     ).bind(id).fetch_optional(&*state.pool).await.unwrap();
 
     if let Some(i) = item {
         let values = ModelForm {
             id: Some(i.id),
             name: i.name,
-            name_short: i.nameShort,
+            name_short: i.name_short,
             description: i.description,
             comments: i.comments,
-            numOfTimes: i.numOfTimes,
-            numOfTimesShort: i.numOfTimesShort,
+            num_of_times: i.num_of_times,
+            num_of_times_short: i.num_of_times_short,
             score: i.score,
-            scoreShort: i.scoreShort,
-            imgname: i.imgname,
+            score_short: i.score_short,
+            image_name: i.image_name,
             long_url: i.long_url,
             short_url: i.short_url
         };
@@ -407,9 +398,9 @@ async fn model_update(
     let q = r#"
         UPDATE models SET
           name=$1, name_short=$2, description=$3, comments=$4,
-          num_of_times=$5, num_of_times_short=$6, score=$7, score_short=$8, imgname=$9, long_url=$10, short_url=$11
+          num_of_times=$5, num_of_times_short=$6, score=$7, score_short=$8, image_name=$9, long_url=$10, short_url=$11
         WHERE id=$10
-        RETURNING id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,imgname,long_url,short_url
+        RETURNING id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,image_name,long_url,short_url
     "#;
 
     let item: Option<Model> = sqlx::query_as(q)
@@ -417,11 +408,11 @@ async fn model_update(
         .bind(&form.name_short)
         .bind(&form.description)
         .bind(&form.comments)
-        .bind(form.numOfTimes)
-        .bind(form.numOfTimesShort)
+        .bind(form.num_of_times)
+        .bind(form.num_of_times_short)
         .bind(form.score)
-        .bind(form.scoreShort)
-        .bind(&form.imgname)
+        .bind(form.score_short)
+        .bind(&form.image_name)
         .bind(&form.long_url)
         .bind(&form.short_url)
         .bind(id)
@@ -449,7 +440,7 @@ async fn model_video_row(
 ) -> Html<String> {
     let item = sqlx::query_as::<_, Model>(
         "SELECT id,name,name_short,description,comments,
-                num_of_times,num_of_times_short,score,score_short,imgname,long_url,short_url
+                num_of_times,num_of_times_short,score,score_short,image_name,long_url,short_url
          FROM models WHERE id=$1"
     )
         .bind(id)
@@ -465,18 +456,18 @@ async fn model_video_row(
 
         // let use_short = matches!(params.kind.as_deref(), Some("short"));
         // let filename = if use_short {
-        //     format!("{}.mp4", m.nameShort)
+        //     format!("{}.mp4", m.name_short)
         // } else {
         //     format!("{}.mp4", m.name)
         // };
         // let src = format!("/static/video/{}", filename);
 
         let title = if use_short {
-            format!("{} — short", m.nameShort)
+            format!("{} — short", m.name_short)
         } else {
             format!("{} — long", m.name)
         };
-        let poster = format!("/static/img/{}", m.imgname);
+        let poster = format!("/static/img/{}", m.image_name);
 
         return Html(VideoRowTpl {
             id: m.id,
