@@ -1,17 +1,25 @@
 use askama::Template;
 use axum::{
     extract::{Form, Path, Query, State},
+//    extract::{Form, Query, State},
     http::HeaderMap,
     response::Html,
     routing::{delete, get, post, put},
     Router,
 };
+use shuttle_axum::AxumService;
 use dotenvy::dotenv;
 use serde::Deserialize;
 use sqlx::{FromRow, PgPool, postgres::PgPoolOptions, QueryBuilder};
+use sqlx::migrate::Migrator;
 use std::sync::Arc;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing::{error, info};
+use shuttle_axum::ShuttleAxum;
+use shuttle_runtime::CustomError;
+use shuttle_shared_db::Postgres; // the attribute
+//use std::{path::Path, sync::Arc};
+//static MIGRATOR: Migrator = Migrator::new(Path::new("migrations")).unwrap();
 
 #[derive(Debug, Clone, FromRow)]
 pub struct Model {
@@ -112,35 +120,40 @@ struct VideoRowTpl {
     title: String,
     colspan: usize,}
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    dotenv().ok();
-    tracing_subscriber::fmt().with_env_filter("info").init();
+#[shuttle_runtime::main]
+async fn main(
+    // Get a Postgres connection string from Shuttle and build the pool yourself.
+    #[shuttle_shared_db::Postgres(
+        local_uri = "postgresql://localhost/qigong-htmx-askama"
+    )] pool: PgPool,
+) -> shuttle_axum::ShuttleAxum {
+    let migrator = Migrator::new(std::path::Path::new("migrations"))
+        .await
+        .map_err(CustomError::new)?;
 
-    let db_url = std::env::var("DATABASE_URL")?;
-    let pool = PgPoolOptions::new().max_connections(10).connect(&db_url).await?;
-    bootstrap(&pool).await?;
+    migrator.run(&pool).await.map_err(CustomError::new)?;
 
-    let state = AppState { pool: Arc::new(pool) };
+    let state = AppState { pool: Arc::new(pool)};
+    let router = build_router(state);
 
-    let app = Router::new()
-        // pages
+    Ok(router.into())
+}
+fn build_router(state: AppState) -> Router {
+    /*    let static_svc = get_service(ServeDir::new("static"))
+            .handle_error(|err: std::io::Error| async move {
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("static file error: {err}"))
+            });
+    */
+    Router::new()
         .route("/", get(index))
         .route("/models", get(models_list).post(model_create))
         .route("/models/new", get(model_new_form))
-        .route("/models/:id", get(model_detail).put(model_update).delete(model_delete))
-        .route("/models/:id/edit", get(model_edit_form))
-        .route("/models/:id/video", get(model_video_row))
-        // static
+        .route("/models/{id}", get(model_detail).put(model_update).delete(model_delete))
+        .route("/models/{id}/edit", get(model_edit_form))
+        .route("/models/{id}/video", get(model_video_row))
         .with_state(state)
         .nest_service("/static", ServeDir::new("static"))
-        .layer(TraceLayer::new_for_http());
-
-    let addr = "127.0.0.1:3000";
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    info!("listening on http://{addr}");
-    axum::serve(listener, app).await?;
-    Ok(())
+    //.layer(TraceLayer::new_for_http())
 }
 
 async fn index() -> Html<String> {
@@ -203,7 +216,7 @@ async fn models_list(
     let sort_value = params.sort.unwrap_or_default();
 
     Html(ModelsTpl {
-        title: "Qigong Videos",
+        title: "Qigong Videos 2",
         items: &items,
         q_value: &q_value,
         min_score_value: &min_score_value,
