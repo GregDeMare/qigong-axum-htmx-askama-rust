@@ -11,7 +11,7 @@ use shuttle_axum::AxumService;
 use dotenvy::dotenv;
 use serde::Deserialize;
 use sqlx::{FromRow, PgPool, postgres::PgPoolOptions, QueryBuilder};
-use sqlx::migrate::Migrator;
+//use sqlx::migrate::Migrator;
 use std::sync::Arc;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing::{error, info};
@@ -127,13 +127,15 @@ async fn main(
         local_uri = "postgresql://localhost/qigong-htmx-askama"
     )] pool: PgPool,
 ) -> shuttle_axum::ShuttleAxum {
-    let migrator = Migrator::new(std::path::Path::new("migrations"))
-        .await
-        .map_err(CustomError::new)?;
+    //let migrator = Migrator::new(std::path::Path::new("migrations"))
+      //  .await
+        //.map_err(CustomError::new)?;
 
-    migrator.run(&pool).await.map_err(CustomError::new)?;
+    //migrator.run(&pool).await.map_err(CustomError::new)?;
+    bootstrap(&pool).await?;
 
     let state = AppState { pool: Arc::new(pool)};
+
     let router = build_router(state);
 
     Ok(router.into())
@@ -477,7 +479,7 @@ async fn bootstrap(pool: &PgPool) -> anyhow::Result<()> {
     "#).execute(pool).await?;
 
     let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM models").fetch_one(pool).await?;
-    if count == 0 {
+    //if count == 0 {
         sqlx::query(r#"
             INSERT INTO models (id, name, name_short, description, comments, num_of_times, num_of_times_short, score, score_short, image_name, long_url, short_url)
             VALUES
@@ -487,10 +489,11 @@ async fn bootstrap(pool: &PgPool) -> anyhow::Result<()> {
               (4,'April08','April08Short','Bone breathing and flying in the flows','',3,4,4,3,'April08.png', 'https://www.dropbox.com/scl/fi/3cphx2fczf4mhsbgo7zk2/April08.mp4?rlkey=9wpd1szgbe322dpynzabjkm7n&dl=0', 'https://www.dropbox.com/scl/fi/ph4q5v4109mfbusuvu40a/April08Short.mp4?rlkey=y557s7mzejrbt3mqto3trygsv&dl=0'),
               (5,'April11','April11Short','Dragon Creates the Pearl','',3,4,4,3,'April11.png', 'https://www.dropbox.com/scl/fi/sj6fjdlk5u9tuo0jzxya1/April11.mp4?rlkey=rq9znrbe82tfal1e4rruo7394&dl=0', 'https://www.dropbox.com/scl/fi/89wbsznf58yluvcfjqags/April11Short.mp4?rlkey=tq6o2rzl3wnqlvso6jutevmlx&dl=0'),
               (6,'April13','April13Short','Flow focused on the earth element','',3,4,4,3,'April15.png', 'https://www.dropbox.com/scl/fi/bspzmtbfdn1kblt7ezne1/April13.mp4?rlkey=5foj1vemlvljimzjf4klorhn7&dl=0', 'https://www.dropbox.com/scl/fi/ws9p41n393evwi4kxyibw/April13Short.mp4?rlkey=nriwexi5r6fmz1cvg36m9dhea&dl=0'),
-              (7,'April15','April15Short','Class focused on calming the mind','',3,4,4,3,'April15.png', 'https://www.dropbox.com/scl/fi/9fbrframbv56ylipko640/April15.mp4?rlkey=m1q3l4zgdk5n95r9eevc4rf65&dl=0', 'https://www.dropbox.com/scl/fi/ytmzcl1st2u3c2f1rc9tm/April15Short.mp4?rlkey=opzkmm021uuycend2jihaorao&dl=0')
+              (7,'April15','April15Short','Class focused on calming the mind','',3,4,4,3,'April15.png', 'https://www.dropbox.com/scl/fi/9fbrframbv56ylipko640/April15.mp4?rlkey=m1q3l4zgdk5n95r9eevc4rf65&dl=0', 'https://www.dropbox.com/scl/fi/ytmzcl1st2u3c2f1rc9tm/April15Short.mp4?rlkey=opzkmm021uuycend2jihaorao&dl=0'),
+              (8,'April18','April18Short','Class focused on calming the mind','',3,4,4,3,'April15.png', 'https://www.dropbox.com/scl/fi/69q59lgtua47m8vtkhpt4/April18.mp4?rlkey=0okt86fyi5u4i7laqopabzhul&dl=0', 'https://www.dropbox.com/scl/fi/28rawekj4c24w7sxxbn50/April18Short.mp4?rlkey=psegrivuobdmup9lamxtzhy3h&dl=0')
             ON CONFLICT (id) DO NOTHING;
         "#).execute(pool).await?;
-    }
+    //}
     Ok(())
 }
 
