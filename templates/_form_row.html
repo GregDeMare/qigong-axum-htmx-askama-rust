@@ -13,11 +13,11 @@
                 <label>#Times <input type="number" name="num_of_times" value="{{ values.num_of_times }}"></label>
                 <label>#Times short <input type="number" name="num_of_times_short" value="{{ values.num_of_times_short }}"></label>
                 <label>Image filename <input type="text" name="image_name" value="{{ values.image_name }}"></label>
-                <label>Long video (Dropbox link)
-                    <input type="url" name="long_url" value="{{ values.long_url }}" placeholder="https://www.dropbox.com/…&dl=0" required>
+                <label>Long video (Dropbox link or /static/video/file.mp4)
+                    <input type="text" name="long_url" value="{{ values.long_url }}" placeholder="https://www.dropbox.com/…&dl=0" required>
                 </label>
-                <label>Short video (Dropbox link)
-                    <input type="url" name="short_url" value="{{ values.short_url }}" placeholder="https://www.dropbox.com/…&dl=0" required>
+                <label>Short video (Dropbox link or /static/video/file.mp4)
+                    <input type="text" name="short_url" value="{{ values.short_url }}" placeholder="https://www.dropbox.com/…&dl=0" required>
                 </label>
             </div>
 
