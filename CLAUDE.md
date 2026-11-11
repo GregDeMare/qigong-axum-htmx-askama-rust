@@ -21,9 +21,9 @@ The entry point is `#[shuttle_runtime::main]`, so plain `cargo run` does not sta
 
 ## Architecture
 
-Everything lives in `src/main.rs`: data structs, one Askama template struct per template file, the router (`build_router`), handlers, and `bootstrap`.
+Everything lives in `src/main.rs`: data structs, one Askama template struct per template file, the router (`build_router`), and handlers.
 
-- **Schema/seed:** `bootstrap()` runs on every startup. It does `CREATE TABLE IF NOT EXISTS models` and inserts seed rows with `ON CONFLICT (id) DO NOTHING`. The `migrations/` SQL files duplicate this but are **not run**. sqlx migrations didn't work on Shuttle deploy (see commit 4980974), so schema changes go into `bootstrap()`. Keep `migrations/` in sync only if you want it as documentation.
+- **Schema/seed: sqlx migrations.** `main` runs `sqlx::migrate!()`, which embeds `migrations/*.sql` at compile time, so it also works on Shuttle deploy. (The earlier runtime `Migrator::new(Path)` attempt failed there.) `build.rs` rebuilds when `migrations/` changes. Applied migrations are recorded in `_sqlx_migrations` with a checksum. **Never edit or delete an applied migration**, because startup will fail. Add a new one instead: `sqlx migrate add -s <name>` (needs `sqlx-cli`). `0001`/`0002` are idempotent (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`) because the databases existed before migrations were introduced. Keep machine-specific data, such as local `/static/video` paths, out of migrations.
 - **Single table `models`:** the column list is repeated literally in every SELECT/INSERT/UPDATE `RETURNING` clause and mirrored in `Model` (`FromRow`), `ModelForm` (`Deserialize`), the seed SQL, and the form templates. Adding a column means updating all of them.
 - **htmx fragment pattern:** handlers return either full pages (templates that `{% extends "base.html" %}`) or HTML fragments (templates prefixed `_`):
   - `GET /models` returns the full `models.html` page, unless the request has `HX-Request` **and** `HX-Target: rows`. In that case it returns only `_rows.html` (the `<tbody id="rows">` contents). The filter form in `models.html` relies on this.
