@@ -355,7 +355,7 @@ async fn model_update(
         UPDATE models SET
           name=$1, name_short=$2, description=$3, comments=$4,
           num_of_times=$5, num_of_times_short=$6, score=$7, score_short=$8, image_name=$9, long_url=$10, short_url=$11
-        WHERE id=$10
+        WHERE id=$12
         RETURNING id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,image_name,long_url,short_url
     "#;
 
