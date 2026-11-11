@@ -10,7 +10,9 @@
            hx-on="htmx:beforeRequest: document.querySelectorAll('tr[id^=video-row-]').forEach(el => el.remove());"
            onclick="const r=this.closest('tr'); const n=r&&r.nextElementSibling; if(n && n.id==='video-row-{{ m.id }}'){ n.remove(); return false; } return false;">
             {{ m.name }}
-        </a>    </td>
+        </a>
+        {% let ls = m.long_status() %}<span title="{{ ls.label() }}">{{ ls.icon() }}</span>
+    </td>
     <td>{{ m.score }}</td>
     <td>{{ m.num_of_times }}</td>
 
@@ -23,7 +25,9 @@
            hx-on="htmx:beforeRequest: document.querySelectorAll('tr[id^=video-row-]').forEach(el => el.remove());"
            onclick="const r=this.closest('tr'); const n=r&&r.nextElementSibling; if(n && n.id==='video-row-{{ m.id }}'){ n.remove(); return false; } return false;">
             {{ m.name_short }}
-        </a>    </td>
+        </a>
+        {% let ss = m.short_status() %}<span title="{{ ss.label() }}">{{ ss.icon() }}</span>
+    </td>
 
     <td>{{ m.score_short }}</td>
     <td>{{ m.num_of_times_short }}</td>

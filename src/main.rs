@@ -37,6 +37,70 @@ pub struct Model {
     pub short_url: String,
 }
 
+impl Model {
+    fn long_status(&self) -> VideoStatus { VideoStatus::of_url(&self.long_url) }
+    fn short_status(&self) -> VideoStatus { VideoStatus::of_url(&self.short_url) }
+}
+
+const VIDEO_DIR: &str = "static/video";
+
+/// Where a video URL points and, for local files, whether Dropbox has the data on disk.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum VideoStatus { Offline, OnlineOnly, Missing, Remote }
+
+impl VideoStatus {
+    fn of_url(url: &str) -> Self {
+        match url.strip_prefix("/static/video/") {
+            Some(file) => Self::of_path(&std::path::Path::new(VIDEO_DIR).join(file)),
+            None => Self::Remote,
+        }
+    }
+
+    fn of_path(path: &std::path::Path) -> Self {
+        match std::fs::metadata(path) {
+            Ok(m) if is_dataless(&m) => Self::OnlineOnly,
+            Ok(_) => Self::Offline,
+            Err(_) => Self::Missing,
+        }
+    }
+
+    fn icon(&self) -> &'static str {
+        match self {
+            Self::Offline => "💾",
+            Self::OnlineOnly => "☁️",
+            Self::Missing => "⚠️",
+            Self::Remote => "🌐",
+        }
+    }
+
+    fn label(&self) -> &'static str {
+        match self {
+            Self::Offline => "offline",
+            Self::OnlineOnly => "online-only",
+            Self::Missing => "missing",
+            Self::Remote => "dropbox link",
+        }
+    }
+}
+
+/// Dropbox (File Provider) marks online-only files as "dataless" until they are downloaded.
+#[cfg(target_os = "macos")]
+fn is_dataless(m: &std::fs::Metadata) -> bool {
+    use std::os::macos::fs::MetadataExt;
+    const SF_DATALESS: u32 = 0x4000_0000;
+    m.st_flags() & SF_DATALESS != 0
+}
+
+#[cfg(not(target_os = "macos"))]
+fn is_dataless(_: &std::fs::Metadata) -> bool { false }
+
+struct VideoFile {
+    name: String,
+    size: String,
+    status: VideoStatus,
+    used_by: String,
+}
+
 #[derive(Clone)]
 struct AppState {
     pool: Arc<PgPool>,
@@ -108,6 +172,14 @@ struct FormTpl<'a> {
     error: &'a str,
 }
 
+#[derive(Template)]
+#[template(path = "videos.html")]
+struct VideosTpl<'a> {
+    title: &'a str,
+    files: &'a [VideoFile],
+    offline_count: usize,
+}
+
 #[derive(Deserialize)]
 struct VideoParams { kind: Option<String> } // "long" | "short"
 
@@ -153,6 +225,7 @@ fn build_router(state: AppState) -> Router {
         .route("/models/{id}", get(model_detail).put(model_update).delete(model_delete))
         .route("/models/{id}/edit", get(model_edit_form))
         .route("/models/{id}/video", get(model_video_row))
+        .route("/videos", get(videos_list))
         .with_state(state)
         .nest_service("/static", ServeDir::new("static"))
     //.layer(TraceLayer::new_for_http())
@@ -436,6 +509,52 @@ async fn model_video_row(
 
     Html("<tr><td colspan=\"8\">Not found</td></tr>".into())
 }
+// LOCAL VIDEO FILES (offline status of every .mp4 in static/video)
+async fn videos_list(State(state): State<AppState>) -> Html<String> {
+    let rows: Vec<(String, String, String)> =
+        sqlx::query_as("SELECT name, long_url, short_url FROM models ORDER BY id")
+            .fetch_all(&*state.pool)
+            .await
+            .unwrap_or_else(|e| {
+                error!("query failed: {e}");
+                vec![]
+            });
+
+    let mut files: Vec<VideoFile> = std::fs::read_dir(VIDEO_DIR)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.to_ascii_lowercase().ends_with(".mp4"))
+        .map(|name| {
+            let path = std::path::Path::new(VIDEO_DIR).join(&name);
+            let bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            let url = format!("/static/video/{name}");
+            let used_by = rows
+                .iter()
+                .flat_map(|(model, long, short)| {
+                    [(long, "long"), (short, "short")]
+                        .into_iter()
+                        .filter(|(u, _)| **u == url)
+                        .map(move |(_, kind)| format!("{model} ({kind})"))
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            VideoFile {
+                status: VideoStatus::of_path(&path),
+                size: format!("{:.2} GB", bytes as f64 / 1e9),
+                name,
+                used_by,
+            }
+        })
+        .collect();
+    files.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let offline_count = files.iter().filter(|f| f.status == VideoStatus::Offline).count();
+
+    Html(VideosTpl { title: "Local videos", files: &files, offline_count }.render().unwrap())
+}
+
 fn normalize_dropbox_url(u: &str) -> Result<String, String> {
     // Accept any https URL; for Dropbox, ensure it streams
     if !u.starts_with("http://") && !u.starts_with("https://") {

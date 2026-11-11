@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+
+{% if files.is_empty() %}
+<p class="muted">No .mp4 files found in <code>static/video</code>. Is the symlink to the Dropbox folder in place?</p>
+{% else %}
+<p>{{ offline_count }} of {{ files.len() }} videos are available offline.
+    <span class="muted">💾 offline · ☁️ online-only (choose "Make available offline" in Finder)</span></p>
+
+<table>
+    <thead>
+    <tr>
+        <th>Status</th>
+        <th>File</th>
+        <th>Size</th>
+        <th>Used by</th>
+    </tr>
+    </thead>
+    <tbody>
+    {% for f in files %}
+    <tr{% if f.status.label() != "offline" %} class="muted"{% endif %}>
+        <td>{{ f.status.icon() }} {{ f.status.label() }}</td>
+        <td><code>{{ f.name }}</code></td>
+        <td>{{ f.size }}</td>
+        <td>{% if f.used_by.is_empty() %}<span class="muted">—</span>{% else %}{{ f.used_by }}{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+{% endblock %}
