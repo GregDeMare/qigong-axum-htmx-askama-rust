@@ -5,8 +5,9 @@ HTML-first, designer-friendly, SPA-like UX.
 ## Run
 
 ```bash
+cp .env.example .env   # once; sets DATABASE_URL
 cargo run
-# open http://127.0.0.1:3000
+# open http://127.0.0.1:8000
  # filenames: Is April11Short.mp4 the same as April08Short.mp4 ? det verkar så!
  # Symlink: static/video now points to ~/Library/CloudStorage/Dropbox/Quigong/HoldenQuigong, and static/video/April01.mp4 is reachable through it.
  # localfile: /static/video/April11Short.mp4
@@ -19,35 +20,33 @@ cargo run
 
 ## Local videos
 
-Locally, the videos play from files on this Mac instead of Dropbox.
+The same code and data work locally and on a server. The database keeps the Dropbox links. When a video is played, the server takes the file name from the link (`…/April01.mp4?rlkey=…`). If that file is in `static/video` **and Dropbox has it offline**, it plays the local file. Otherwise it streams from Dropbox. On a server there is no `static/video`, so it always uses Dropbox.
 
-- `static/video` is a symlink (gitignored) to the offline Dropbox folder:
+- `static/video` is a symlink (gitignored) to the Dropbox folder:
   ```bash
   ln -s ~/Library/CloudStorage/Dropbox/Quigong/HoldenQuigong static/video
   ```
-  Keep that folder set to "Make available offline" in Finder.
-- In the local database (`postgresql://localhost/qigong-htmx-askama`), every row's `long_url`/`short_url` was switched to local paths:
-  ```sql
-  UPDATE models SET
-    long_url  = '/static/video/' || name       || '.mp4',
-    short_url = '/static/video/' || name_short || '.mp4';
-  ```
-- New models: enter `/static/video/<file>.mp4` (or a Dropbox link) in the video fields.
-- Local paths only work with `shuttle run`. The Shuttle database still uses Dropbox links.
+  Choose "Make available offline" in Finder for the videos you want to play locally. Online-only files stream from Dropbox instead of downloading on demand.
+- The **Local videos** page (`/videos`) and the icons in the models table show which files are offline (💾) or online-only (☁️).
+- New models: enter the Dropbox link. A plain `/static/video/<file>.mp4` path also works, but only on this Mac.
+
+## Data backup
+
+`backup/models.sql` is a data-only dump of the `models` table (2026-11-12). To restore it into a database whose schema the app has already created:
+
+```bash
+psql "$DATABASE_URL" -c "TRUNCATE models;" -f backup/models.sql
+```
+
+To refresh it:
+
+```bash
+pg_dump --data-only --column-inserts --table=models "$DATABASE_URL" > backup/models.sql
+```
+
 
 ### Backup table `models_backup`
 
-Before that update, the original rows (with the Dropbox links) were copied into a table `models_backup` in the local database:
-
-```sql
-CREATE TABLE models_backup AS SELECT * FROM models;
-```
-
-The app never reads it. To restore the Dropbox links:
-
-```sql
-UPDATE models m SET long_url = b.long_url, short_url = b.short_url
-FROM models_backup b WHERE m.id = b.id;
-```
+The local database has a table `models_backup`, a copy of `models` taken on 2026-11-11. The app never reads it. Its rows hold the Dropbox links from that date, apart from manual edits made earlier. They were used to restore the links when local playback switched to the automatic approach above.
 
 To remove it once it's no longer needed: `DROP TABLE models_backup;`

@@ -5,23 +5,13 @@ edition = "2021"
 
 [dependencies]
 askama = "0.12"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
 uuid = { version = "1", features = ["v4"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde = { version = "1", features = ["derive"] }
 sqlx = { version = "0.8.3", default-features = false, features = ["runtime-tokio-rustls", "postgres", "macros", "migrate"] }
 dotenvy = "0.15"
-anyhow = "1.0.96" # optional, just to load .env easily
-shuttle-shared-db = { version = "0.52.0", features = ["postgres", "sqlx"] }
-
-# Shuttle
-shuttle-runtime = "0.52.0"
-shuttle-axum    = "0.52.0"
-
-# Axum 0.6 (matches shuttle-axum 0.52)
-#axum = { version = "0.6.20", features = ["macros"] }
+anyhow = "1.0.96"
 axum = "0.8"
-# tower-http that matches axum 0.6
 tower-http = { version = "0.6.6", features = ["fs", "trace"] }
-#tower-http = { version = "0.4.4", features = ["fs", "trace"] }
