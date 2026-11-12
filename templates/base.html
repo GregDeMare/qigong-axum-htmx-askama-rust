@@ -5,26 +5,40 @@
     <title>{{ title }}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="https://unpkg.com/htmx.org@2.0.3"></script>
-    <link rel="stylesheet" href="/static/css/app.css">
+    <!-- ?v= forces browsers that cached app.css before /static sent Cache-Control to fetch it again -->
+    <link rel="stylesheet" href="/static/css/app.css?v=2">
+    <script>
+        // Theme: dark by default; the header button switches to light and the choice is saved.
+        // Lives in <head> so it runs before first paint and isn't re-run by hx-boost navigation.
+        (function () {
+            if (localStorage.getItem('qigong-theme') === 'light') document.documentElement.dataset.theme = 'light';
+        })();
+        function toggleTheme() {
+            var root = document.documentElement;
+            var next = root.dataset.theme === 'light' ? 'dark' : 'light';
+            root.dataset.theme = next;
+            localStorage.setItem('qigong-theme', next);
+        }
+    </script>
     <style>
         body { font-family: system-ui, sans-serif; margin: 2rem; }
         header { display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem; }
         header a { text-decoration: none; }
         table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
-        th, td { border-bottom: 1px solid #eee; padding: .5rem; text-align: left; vertical-align: top; }
-        .muted { color: #666; }
+        th, td { border-bottom: 1px solid var(--border); padding: .5rem; text-align: left; vertical-align: top; }
+        .muted { color: var(--muted); }
         .thumb { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; }
         .toolbar { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
         .modal { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: none; align-items: center; justify-content: center; }
         .modal.open { display: flex; }
-        .modal > div { background: white; padding: 1rem; border-radius: 8px; width: min(720px, 92vw); }
+        .modal > div { background: var(--surface); padding: 1rem; border-radius: 8px; width: min(720px, 92vw); }
     </style>
 </head>
 <body hx-boost="true" hx-push-url="true">
 <header>
     <a href="/">Home</a>
-    <a href="/models">Models</a>
     <a href="/videos">Local videos</a>
+    <button type="button" class="theme-toggle" onclick="toggleTheme()" title="Switch light/dark mode" aria-label="Switch light/dark mode">🌓</button>
 </header>
 <main>
     {% block content %}{% endblock %}
