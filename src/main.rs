@@ -7,17 +7,14 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
-use shuttle_axum::AxumService;
+use anyhow::Context;
 use dotenvy::dotenv;
 use serde::Deserialize;
 use sqlx::{FromRow, PgPool, postgres::PgPoolOptions, QueryBuilder};
 use std::sync::Arc;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing::{error, info};
-use shuttle_axum::ShuttleAxum;
-use shuttle_runtime::CustomError;
-use shuttle_shared_db::Postgres; // the attribute
-//use std::{path::Path, sync::Arc};
+use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Clone, FromRow)]
 pub struct Model {
@@ -47,10 +44,14 @@ const VIDEO_DIR: &str = "static/video";
 enum VideoStatus { Offline, OnlineOnly, Missing, Remote }
 
 impl VideoStatus {
+    /// Status of the local copy of a video URL. Dropbox links whose file isn't
+    /// in static/video (e.g. on Shuttle) are `Remote`.
     fn of_url(url: &str) -> Self {
-        match url.strip_prefix("/static/video/") {
-            Some(file) => Self::of_path(&std::path::Path::new(VIDEO_DIR).join(file)),
-            None => Self::Remote,
+        let local = video_file_name(url).map(|f| Self::of_path(&std::path::Path::new(VIDEO_DIR).join(f)));
+        match local {
+            Some(Self::Missing) | None if is_plain_https(url) => Self::Remote,
+            Some(status) => status,
+            None => Self::Missing,
         }
     }
 
@@ -190,21 +191,37 @@ struct VideoRowTpl {
     title: String,
     colspan: usize,}
 
-#[shuttle_runtime::main]
-async fn main(
-    // Get a Postgres connection string from Shuttle and build the pool yourself.
-    #[shuttle_shared_db::Postgres(
-        local_uri = "postgresql://localhost/qigong-htmx-askama"
-    )] pool: PgPool,
-) -> shuttle_axum::ShuttleAxum {
-    // Migrations are embedded at compile time, so they also run on Shuttle deploy.
-    sqlx::migrate!().run(&pool).await.map_err(CustomError::new)?;
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    // .env is optional; real environment variables take precedence.
+    dotenv().ok();
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .init();
+
+    let database_url = std::env::var("DATABASE_URL").context("DATABASE_URL must be set (see .env.example)")?;
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await
+        .context("could not connect to DATABASE_URL")?;
+
+    // Migrations are embedded at compile time, so the binary doesn't need the migrations/ folder.
+    sqlx::migrate!().run(&pool).await.context("running migrations")?;
 
     let state = AppState { pool: Arc::new(pool)};
-
     let router = build_router(state);
 
-    Ok(router.into())
+    // Hosting platforms usually pass PORT and need HOST=0.0.0.0; locally only listen on 127.0.0.1.
+    let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".into());
+    let port = std::env::var("PORT").unwrap_or_else(|_| "8000".into());
+    let listener = tokio::net::TcpListener::bind(format!("{host}:{port}"))
+        .await
+        .with_context(|| format!("binding {host}:{port}"))?;
+    info!("listening on http://{}", listener.local_addr()?);
+
+    axum::serve(listener, router).await?;
+    Ok(())
 }
 fn build_router(state: AppState) -> Router {
     /*    let static_svc = get_service(ServeDir::new("static"))
@@ -475,7 +492,7 @@ async fn model_video_row(
         let use_short = matches!(params.kind.as_deref(), Some("short"));
         let src = if use_short { m.short_url.clone() } else { m.long_url.clone() };
         // ensure normalized before feeding to the template (in case legacy rows exist)
-        let src = normalize_dropbox_url(&src).unwrap_or(src);
+        let src = playback_src(&src);
 
         // let use_short = matches!(params.kind.as_deref(), Some("short"));
         // let filename = if use_short {
@@ -523,13 +540,12 @@ async fn videos_list(State(state): State<AppState>) -> Html<String> {
         .map(|name| {
             let path = std::path::Path::new(VIDEO_DIR).join(&name);
             let bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-            let url = format!("/static/video/{name}");
             let used_by = rows
                 .iter()
                 .flat_map(|(model, long, short)| {
                     [(long, "long"), (short, "short")]
                         .into_iter()
-                        .filter(|(u, _)| **u == url)
+                        .filter(|(u, _)| video_file_name(u) == Some(name.as_str()))
                         .map(move |(_, kind)| format!("{model} ({kind})"))
                 })
                 .collect::<Vec<_>>()
@@ -547,6 +563,25 @@ async fn videos_list(State(state): State<AppState>) -> Html<String> {
     let offline_count = files.iter().filter(|f| f.status == VideoStatus::Offline).count();
 
     Html(VideosTpl { title: "Local videos", files: &files, offline_count }.render().unwrap())
+}
+
+/// File name a video URL refers to: the last path segment of a Dropbox link
+/// (`…/April01.mp4?rlkey=…`) or of a `/static/video/April01.mp4` path.
+fn video_file_name(url: &str) -> Option<&str> {
+    let path = url.split(['?', '#']).next()?;
+    let file = path.rsplit('/').next()?;
+    file.to_ascii_lowercase().ends_with(".mp4").then_some(file)
+}
+
+/// Play the local copy when Dropbox has it offline on this machine, otherwise
+/// stream the URL itself. On Shuttle there is no static/video, so Dropbox is used.
+fn playback_src(url: &str) -> String {
+    match video_file_name(url) {
+        Some(file) if VideoStatus::of_path(&std::path::Path::new(VIDEO_DIR).join(file)) == VideoStatus::Offline => {
+            format!("/static/video/{file}")
+        }
+        _ => normalize_dropbox_url(url).unwrap_or_else(|_| url.to_string()),
+    }
 }
 
 fn normalize_dropbox_url(u: &str) -> Result<String, String> {
