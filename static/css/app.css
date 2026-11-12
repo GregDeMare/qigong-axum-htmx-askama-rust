@@ -1,6 +1,31 @@
 /* Add designer's CSS here */
-body { font-family: sans-serif; margin: 0; padding: 0; }
-header { padding: 1rem; background: #eee; }
+
+/* Theme colours: dark by default, light when the header button sets data-theme="light". */
+:root {
+    color-scheme: dark;
+    --bg: #121417;
+    --fg: #e6e6e6;
+    --muted: #9a9a9a;
+    --border: #2c2f34;
+    --header-bg: #1e2126;
+    --surface: #1b1e22;
+    --link: #8ab4f8;
+}
+:root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #666666;
+    --border: #eeeeee;
+    --header-bg: #eeeeee;
+    --surface: #ffffff;
+    --link: #0b57d0;
+}
+
+body { font-family: sans-serif; margin: 0; padding: 0; background: var(--bg); color: var(--fg); }
+a { color: var(--link); }
+header { padding: 1rem; background: var(--header-bg); }
+.theme-toggle { margin-left: auto; background: none; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 1.1rem; line-height: 1; padding: .3rem .5rem; }
 nav a { margin-right: 1rem; }
 main { padding: 1rem; }
 /* Slide down animation for video panel */

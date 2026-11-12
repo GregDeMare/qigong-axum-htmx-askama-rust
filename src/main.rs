@@ -12,7 +12,8 @@ use dotenvy::dotenv;
 use serde::Deserialize;
 use sqlx::{FromRow, PgPool, postgres::PgPoolOptions, QueryBuilder};
 use std::sync::Arc;
-use tower_http::{services::ServeDir, trace::TraceLayer};
+use axum::http::{header, HeaderValue};
+use tower_http::{services::ServeDir, set_header::SetResponseHeader, trace::TraceLayer};
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
@@ -129,10 +130,6 @@ struct ModelForm {
 }
 
 #[derive(Template)]
-#[template(path = "index.html")]
-struct IndexTpl<'a> { title: &'a str }
-
-#[derive(Template)]
 #[template(path = "models.html")]
 struct ModelsTpl<'a> {
     title: &'a str,
@@ -230,7 +227,7 @@ fn build_router(state: AppState) -> Router {
             });
     */
     Router::new()
-        .route("/", get(index))
+        .route("/", get(models_list))
         .route("/models", get(models_list).post(model_create))
         .route("/models/new", get(model_new_form))
         .route("/models/{id}", get(model_detail).put(model_update).delete(model_delete))
@@ -238,12 +235,13 @@ fn build_router(state: AppState) -> Router {
         .route("/models/{id}/video", get(model_video_row))
         .route("/videos", get(videos_list))
         .with_state(state)
-        .nest_service("/static", ServeDir::new("static"))
+        // no-cache: browsers revalidate every time (cheap 304 if unchanged), so CSS/JS edits show up immediately.
+        .nest_service("/static", SetResponseHeader::overriding(
+            ServeDir::new("static"),
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-cache"),
+        ))
     //.layer(TraceLayer::new_for_http())
-}
-
-async fn index() -> Html<String> {
-    Html(IndexTpl { title: "Home" }.render().unwrap())
 }
 
 // LIST + FILTER
