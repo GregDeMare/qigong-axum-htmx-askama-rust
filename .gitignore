@@ -3,3 +3,4 @@
 Secrets*.toml
 static/video
 .DS_Store
+.env
