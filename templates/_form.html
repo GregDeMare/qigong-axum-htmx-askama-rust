@@ -1,12 +1,13 @@
 <div class="modal open" id="modal">
     <div>
         <h2>{{ submit_label }} Model</h2>
-        {% if error != "" %}<p class="muted">Error: {{ error }}</p>{% endif %}
+        {% if error != "" %}<p role="alert">{{ error }}</p>{% endif %}
 
         <form
                 hx-{{ method }}="{{ action }}"
                 hx-target="#{{ target_id }}"
-                hx-swap="{{ swap_mode }}">
+                hx-swap="{{ swap_mode }}"
+                hx-on::after-request="if(event.detail.successful) document.getElementById('modal').classList.remove('open')">
             {% if values.id.is_some() %}
             <input type="hidden" name="id" value="{{ values.id.unwrap() }}">
             {% endif %}
@@ -37,9 +38,7 @@
             <div style="margin-top:.75rem; display:flex; gap:.5rem;">
                 <button type="submit">{{ submit_label }}</button>
                 <button type="button"
-                        hx-get="/models"
-                        hx-target="#modal"
-                        hx-swap="outerHTML">Cancel</button>
+                        onclick="this.closest('.modal').classList.remove('open')">Cancel</button>
             </div>
         </form>
     </div>

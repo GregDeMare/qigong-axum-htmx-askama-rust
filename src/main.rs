@@ -2,8 +2,8 @@ use askama::Template;
 use axum::{
     extract::{Form, Path, Query, State},
 //    extract::{Form, Query, State},
-    http::HeaderMap,
-    response::Html,
+    http::{HeaderMap, StatusCode},
+    response::{Html, IntoResponse, Response},
     routing::{delete, get, post, put},
     Router,
 };
@@ -104,6 +104,77 @@ struct VideoFile {
 #[derive(Clone)]
 struct AppState {
     pool: Arc<PgPool>,
+}
+
+type HandlerResult = Result<Html<String>, RequestError>;
+
+#[derive(Debug)]
+struct RequestError {
+    status: StatusCode,
+    body: Html<String>,
+    target: String,
+    swap: &'static str,
+}
+
+impl RequestError {
+    fn message(status: StatusCode, message: &'static str) -> Self {
+        Self {
+            status,
+            body: Html(format!("<p role=\"alert\">{message}</p>")),
+            target: "#request-error".into(),
+            swap: "innerHTML",
+        }
+    }
+
+    fn database(operation: &'static str, error: sqlx::Error) -> Self {
+        error!(operation, error = %error, "database operation failed");
+        Self::message(StatusCode::INTERNAL_SERVER_ERROR,
+            "Could not load models. Please try again.")
+    }
+
+    fn not_found() -> Self {
+        Self::message(StatusCode::NOT_FOUND, "This model no longer exists. Refresh the list.")
+    }
+}
+
+impl IntoResponse for RequestError {
+    fn into_response(self) -> Response {
+        // Only responses marked by this application may be swapped on an HTTP error.
+        (self.status, [
+            ("x-app-error", "true"),
+            ("hx-retarget", self.target.as_str()),
+            ("hx-reswap", self.swap),
+            ("hx-push-url", "false"),
+        ], self.body).into_response()
+    }
+}
+
+fn render(template: impl Template) -> HandlerResult {
+    template.render().map(Html).map_err(|error| {
+        error!(error = %error, "template rendering failed");
+        RequestError::message(StatusCode::INTERNAL_SERVER_ERROR,
+            "Could not display this page. Please try again.")
+    })
+}
+
+fn create_form_error(status: StatusCode, form: &ModelForm, message: &'static str) -> HandlerResult {
+    let body = render(FormTpl {
+        action: "/models",
+        method: "post",
+        submit_label: "Create",
+        target_id: "rows",
+        swap_mode: "beforeend",
+        values: form,
+        error: message,
+    })?;
+    Err(RequestError { status, body, target: "#modal".into(), swap: "outerHTML" })
+}
+
+fn update_form_error(status: StatusCode, form: &ModelForm, message: &'static str) -> HandlerResult {
+    let body = render(FormRowTpl { values: form, error: message })?;
+    Err(RequestError {
+        status, body, target: format!("#row-{}", form.id.unwrap()), swap: "outerHTML",
+    })
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -249,7 +320,7 @@ async fn models_list(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(params): Query<ListParams>,
-) -> Html<String> {
+) -> HandlerResult {
     let mut qb = QueryBuilder::new(
         "SELECT id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,image_name, long_url, short_url FROM models"
     );
@@ -278,10 +349,8 @@ async fn models_list(
         _ => qb.push(" id ASC "),
     };
 
-    let items: Vec<Model> = qb.build_query_as().fetch_all(&*state.pool).await.unwrap_or_else(|e| {
-        error!("query failed: {e}");
-        vec![]
-    });
+    let items: Vec<Model> = qb.build_query_as().fetch_all(&*state.pool).await
+        .map_err(|error| RequestError::database("list models", error))?;
 
     let is_hx = headers.get("HX-Request").is_some();
     let hx_target = headers
@@ -291,7 +360,7 @@ async fn models_list(
 
     // Only send the fragment when the request is explicitly targeting the table body
     if is_hx && hx_target == "rows" {
-        return Html(RowsTpl { items: &items }.render().unwrap());
+        return render(RowsTpl { items: &items });
     }
 
     // otherwise, render full page (so headers appear)
@@ -299,32 +368,31 @@ async fn models_list(
     let min_score_value = params.min_score.map(|v| v.to_string()).unwrap_or_default();
     let sort_value = params.sort.unwrap_or_default();
 
-    Html(ModelsTpl {
+    render(ModelsTpl {
         title: "Qigong Videos 2",
         items: &items,
         q_value: &q_value,
         min_score_value: &min_score_value,
         sort_value: &sort_value,
-    }
-        .render()
-        .unwrap())
+    })
 }
 // DETAIL
-async fn model_detail(State(state): State<AppState>, Path(id): Path<i32>) -> Html<String> {
+async fn model_detail(State(state): State<AppState>, Path(id): Path<i32>) -> HandlerResult {
     let item = sqlx::query_as::<_, Model>(
         "SELECT id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,image_name, long_url, short_url FROM models WHERE id=$1"
-    ).bind(id).fetch_optional(&*state.pool).await.unwrap();
+    ).bind(id).fetch_optional(&*state.pool).await
+        .map_err(|error| RequestError::database("load model", error))?;
 
     match item {
-        Some(item) => Html(DetailTpl { title: "Model Detail", item: &item }.render().unwrap()),
-        None => Html("<h1>Not found</h1>".into()),
+        Some(item) => render(DetailTpl { title: "Model Detail", item: &item }),
+        None => Err(RequestError::not_found()),
     }
 }
 
 // NEW FORM (fragment)
-async fn model_new_form() -> Html<String> {
+async fn model_new_form() -> HandlerResult {
     let empty = ModelForm::default();
-    Html(FormTpl {
+    render(FormTpl {
         action: "/models",
         method: "post",
         submit_label: "Create",
@@ -332,25 +400,17 @@ async fn model_new_form() -> Html<String> {
         swap_mode: "beforeend",     // ✅ append to #rows
         values: &empty,
         error: "",
-    }.render().unwrap())
+    })
 }
 
 // CREATE (returns a single <tr> to append or errors as form)
 async fn model_create(
     State(state): State<AppState>,
     Form(form): Form<ModelForm>,
-) -> Html<String> {
+) -> HandlerResult {
     // naive validation
     if form.name.trim().is_empty() {
-        return Html(FormTpl {
-            action: "/models",
-            method: "post",
-            submit_label: "Create",
-            target_id: "rows",          // ✅
-            swap_mode: "beforeend",     // ✅
-            values: &form,
-            error: "Name is required",
-        }.render().unwrap());
+        return create_form_error(StatusCode::UNPROCESSABLE_ENTITY, &form, "Name is required");
     }
 
     let q = r#"
@@ -359,7 +419,7 @@ async fn model_create(
         RETURNING id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,image_name, long_url, short_url
     "#;
 
-    let item: Model = sqlx::query_as(q)
+    let result = sqlx::query_as::<_, Model>(q)
         .bind(&form.name)
         .bind(&form.name_short)
         .bind(&form.description)
@@ -371,19 +431,27 @@ async fn model_create(
         .bind(&form.image_name)
         .bind(&form.long_url)
         .bind(&form.short_url)
-        .fetch_one(&*state.pool).await.unwrap();
+        .fetch_one(&*state.pool).await;
 
-    Html(RowTpl { m: &item }.render().unwrap())
+    match result {
+        Ok(item) => render(RowTpl { m: &item }),
+        Err(error) => {
+            error!(error = %error, "could not create model");
+            create_form_error(StatusCode::INTERNAL_SERVER_ERROR, &form,
+                "Could not create the model. Your entries are preserved. Please try again.")
+        }
+    }
 }
 
 // EDIT FORM (fragment)
 async fn model_edit_form(
     State(state): State<AppState>,
     Path(id): Path<i32>,
-) -> Html<String> {
+) -> HandlerResult {
     let item: Option<Model> = sqlx::query_as(
         "SELECT id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,image_name, long_url, short_url FROM models WHERE id=$1"
-    ).bind(id).fetch_optional(&*state.pool).await.unwrap();
+    ).bind(id).fetch_optional(&*state.pool).await
+        .map_err(|error| RequestError::database("load model for editing", error))?;
 
     if let Some(i) = item {
         let values = ModelForm {
@@ -400,9 +468,9 @@ async fn model_edit_form(
             long_url: i.long_url,
             short_url: i.short_url
         };
-        Html(FormRowTpl { values: &values, error: "" }.render().unwrap())
+        render(FormRowTpl { values: &values, error: "" })
     } else {
-        Html("<tr><td colspan=\"8\">Not found</td></tr>".into())
+        Err(RequestError::not_found())
     }
 }
 
@@ -410,20 +478,12 @@ async fn model_edit_form(
 async fn model_update(
     State(state): State<AppState>,
     Path(id): Path<i32>,
-    Form(form): Form<ModelForm>,
-) -> Html<String> {
+    Form(mut form): Form<ModelForm>,
+) -> HandlerResult {
+    // The route identifies the row; the submitted form must not redirect a retry.
+    form.id = Some(id);
     if form.name.trim().is_empty() {
-        let action_owned = format!("/models/{id}");
-        let target_owned = format!("row-{id}");
-        return Html(FormTpl {
-            action: Box::leak(action_owned.into_boxed_str()),
-            method: "put",
-            submit_label: "Save",
-            target_id: Box::leak(target_owned.into_boxed_str()), // ✅
-            swap_mode: "outerHTML",                               // ✅
-            values: &form,
-            error: "Name is required",
-        }.render().unwrap());
+        return update_form_error(StatusCode::UNPROCESSABLE_ENTITY, &form, "Name is required");
     }
     let q = r#"
         UPDATE models SET
@@ -433,7 +493,7 @@ async fn model_update(
         RETURNING id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,image_name,long_url,short_url
     "#;
 
-    let item: Option<Model> = sqlx::query_as(q)
+    let result = sqlx::query_as::<_, Model>(q)
         .bind(&form.name)
         .bind(&form.name_short)
         .bind(&form.description)
@@ -446,11 +506,17 @@ async fn model_update(
         .bind(&form.long_url)
         .bind(&form.short_url)
         .bind(id)
-        .fetch_optional(&*state.pool).await.unwrap();
+        .fetch_optional(&*state.pool).await;
 
-    match item {
-        Some(i) => Html(RowTpl { m: &i }.render().unwrap()),
-        None => Html("<tr><td colspan=\"7\">Not found</td></tr>".into()),
+    match result {
+        Ok(Some(item)) => render(RowTpl { m: &item }),
+        Ok(None) => update_form_error(StatusCode::NOT_FOUND, &form,
+            "This model no longer exists. Copy your entries before refreshing the list."),
+        Err(error) => {
+            error!(id, error = %error, "could not update model");
+            update_form_error(StatusCode::INTERNAL_SERVER_ERROR, &form,
+                "Could not save the model. Your entries are preserved. Please try again.")
+        }
     }
 }
 
@@ -458,16 +524,24 @@ async fn model_update(
 async fn model_delete(
     State(state): State<AppState>,
     Path(id): Path<i32>,
-) -> Html<String> {
-    let _ = sqlx::query("DELETE FROM models WHERE id=$1").bind(id).execute(&*state.pool).await;
-    Html(String::new())
+) -> HandlerResult {
+    let result = sqlx::query("DELETE FROM models WHERE id=$1").bind(id)
+        .execute(&*state.pool).await.map_err(|error| {
+            error!(id, error = %error, "could not delete model");
+            RequestError::message(StatusCode::INTERNAL_SERVER_ERROR,
+                "Could not delete the model. It is still in the list. Please try again.")
+        })?;
+    if result.rows_affected() == 0 {
+        return Err(RequestError::not_found());
+    }
+    Ok(Html(String::new()))
 }
 
 async fn model_video_row(
     State(state): State<AppState>,
     Path(id): Path<i32>,
     Query(params): Query<VideoParams>,
-) -> Html<String> {
+) -> HandlerResult {
     let item = sqlx::query_as::<_, Model>(
         "SELECT id,name,name_short,description,comments,
                 num_of_times,num_of_times_short,score,score_short,image_name,long_url,short_url
@@ -476,7 +550,7 @@ async fn model_video_row(
         .bind(id)
         .fetch_optional(&*state.pool)
         .await
-        .unwrap();
+        .map_err(|error| RequestError::database("load model video", error))?;
 
     if let Some(m) = item {
         let use_short = matches!(params.kind.as_deref(), Some("short"));
@@ -499,27 +573,24 @@ async fn model_video_row(
         };
         let poster = format!("/static/img/{}", m.image_name);
 
-        return Html(VideoRowTpl {
+        return render(VideoRowTpl {
             id: m.id,
             poster,
             src,
             title,
             colspan: 8,
-        }.render().unwrap());
+        });
     }
 
-    Html("<tr><td colspan=\"8\">Not found</td></tr>".into())
+    Err(RequestError::not_found())
 }
 // LOCAL VIDEO FILES (offline status of every .mp4 in static/video)
-async fn videos_list(State(state): State<AppState>) -> Html<String> {
+async fn videos_list(State(state): State<AppState>) -> HandlerResult {
     let rows: Vec<(String, String, String)> =
         sqlx::query_as("SELECT name, long_url, short_url FROM models ORDER BY id")
             .fetch_all(&*state.pool)
             .await
-            .unwrap_or_else(|e| {
-                error!("query failed: {e}");
-                vec![]
-            });
+            .map_err(|error| RequestError::database("list video usage", error))?;
 
     let mut files: Vec<VideoFile> = std::fs::read_dir(VIDEO_DIR)
         .into_iter()
@@ -552,7 +623,7 @@ async fn videos_list(State(state): State<AppState>) -> Html<String> {
 
     let offline_count = files.iter().filter(|f| f.status == VideoStatus::Offline).count();
 
-    Html(VideosTpl { title: "Local videos", files: &files, offline_count }.render().unwrap())
+    render(VideosTpl { title: "Local videos", files: &files, offline_count })
 }
 
 /// File name a video URL refers to: the last path segment of a Dropbox link
@@ -603,6 +674,152 @@ fn is_plain_https(u: &str) -> bool {
 mod tests {
     use super::*;
 
+    async fn error_body(result: HandlerResult, status: StatusCode, target: &str, swap: &str) -> String {
+        let response = result.unwrap_err().into_response();
+        assert_eq!(response.status(), status);
+        assert_eq!(response.headers()["x-app-error"], "true");
+        assert_eq!(response.headers()["hx-retarget"], target);
+        assert_eq!(response.headers()["hx-reswap"], swap);
+        assert_eq!(response.headers()["hx-push-url"], "false");
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    fn rejected_form() -> ModelForm {
+        ModelForm {
+            id: Some(999),
+            name: "Rejected <model>".into(),
+            name_short: "Short name".into(),
+            description: "Keep my description".into(),
+            comments: "Keep my comments".into(),
+            image_name: "image.png".into(),
+            long_url: "https://example.com/long.mp4".into(),
+            short_url: "https://example.com/short.mp4".into(),
+            num_of_times: 11,
+            num_of_times_short: 12,
+            score: 13,
+            score_short: 14,
+        }
+    }
+
+    fn assert_entries_preserved(body: &str) {
+        for value in ["Short name", "Keep my description", "Keep my comments", "image.png",
+            "https://example.com/long.mp4", "https://example.com/short.mp4",
+            "value=\"11\"", "value=\"12\"", "value=\"13\"", "value=\"14\""] {
+            assert!(body.contains(value), "missing preserved value: {value}");
+        }
+        assert!(body.contains("Rejected"));
+        assert!(!body.contains("Rejected <model>"), "input must be HTML escaped");
+        assert!(!body.contains("secret_database_details"));
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn failed_writes_preserve_forms_and_rows_and_allow_retry(pool: PgPool) {
+        prepare_id_sequence(&pool, Some(1000)).await;
+        sqlx::raw_sql("\
+            ALTER TABLE models ADD CONSTRAINT secret_database_details
+                CHECK (name <> 'Rejected <model>');
+            CREATE FUNCTION reject_delete() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN RAISE EXCEPTION 'secret_database_details'; END;
+            $$;
+            CREATE TRIGGER reject_delete BEFORE DELETE ON models
+                FOR EACH ROW EXECUTE FUNCTION reject_delete();
+        ").execute(&pool).await.unwrap();
+        let state = AppState { pool: Arc::new(pool) };
+
+        let result = model_create(State(state.clone()), Form(rejected_form())).await;
+        let body = error_body(result, StatusCode::INTERNAL_SERVER_ERROR, "#modal", "outerHTML").await;
+        assert_entries_preserved(&body);
+        assert!(body.contains("Could not create"));
+        assert!(body.contains("hx-post=\"/models\""));
+
+        let result = model_update(State(state.clone()), Path(1), Form(rejected_form())).await;
+        let body = error_body(result, StatusCode::INTERNAL_SERVER_ERROR, "#row-1", "outerHTML").await;
+        assert_entries_preserved(&body);
+        assert!(body.contains("Could not save"));
+        assert!(body.contains("hx-put=\"/models/1\""));
+        assert!(body.starts_with("<tr id=\"row-1\">"));
+        let name: String = sqlx::query_scalar("SELECT name FROM models WHERE id = 1")
+            .fetch_one(&*state.pool).await.unwrap();
+        assert_eq!(name, "April01");
+
+        let result = model_delete(State(state.clone()), Path(1)).await;
+        let body = error_body(result, StatusCode::INTERNAL_SERVER_ERROR, "#request-error", "innerHTML").await;
+        assert!(body.contains("Could not delete"));
+        assert!(!body.contains("secret_database_details"));
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM models WHERE id = 1)")
+            .fetch_one(&*state.pool).await.unwrap();
+        assert!(exists);
+
+        sqlx::raw_sql("\
+            DROP TRIGGER reject_delete ON models;
+            ALTER TABLE models DROP CONSTRAINT secret_database_details;
+        ").execute(&*state.pool).await.unwrap();
+        let Html(created) = model_create(State(state.clone()), Form(rejected_form())).await.unwrap();
+        assert!(created.starts_with("<tr id=\"row-"));
+        let Html(updated) = model_update(State(state.clone()), Path(1), Form(rejected_form())).await.unwrap();
+        assert!(updated.starts_with("<tr id=\"row-1\">"));
+        let Html(body) = model_delete(State(state.clone()), Path(1)).await.unwrap();
+        assert!(body.is_empty());
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM models WHERE id = 1)")
+            .fetch_one(&*state.pool).await.unwrap();
+        assert!(!exists);
+    }
+
+    #[tokio::test]
+    async fn validation_errors_return_forms_to_the_correct_targets() {
+        let pool = PgPoolOptions::new().connect_lazy("postgresql://localhost/unused").unwrap();
+        pool.close().await;
+        let state = AppState { pool: Arc::new(pool) };
+        let result = model_create(State(state.clone()), Form(ModelForm::default())).await;
+        let body = error_body(result, StatusCode::UNPROCESSABLE_ENTITY, "#modal", "outerHTML").await;
+        assert!(body.contains("Name is required"));
+        let result = model_update(State(state), Path(42), Form(ModelForm::default())).await;
+        let body = error_body(result, StatusCode::UNPROCESSABLE_ENTITY, "#row-42", "outerHTML").await;
+        assert!(body.starts_with("<tr id=\"row-42\">"));
+        assert!(body.contains("Name is required"));
+        assert!(body.contains("hx-put=\"/models/42\""));
+    }
+
+    #[tokio::test]
+    async fn unavailable_database_returns_errors_instead_of_panicking_or_empty_lists() {
+        let pool = PgPoolOptions::new().connect_lazy("postgresql://localhost/unused").unwrap();
+        pool.close().await;
+        let state = AppState { pool: Arc::new(pool) };
+        let results = [
+            models_list(State(state.clone()), HeaderMap::new(), Query(ListParams {
+                q: None, min_score: None, sort: None,
+            })).await,
+            model_detail(State(state.clone()), Path(1)).await,
+            model_edit_form(State(state.clone()), Path(1)).await,
+            model_video_row(State(state.clone()), Path(1), Query(VideoParams { kind: None })).await,
+            videos_list(State(state.clone())).await,
+            model_create(State(state.clone()), Form(rejected_form())).await,
+            model_update(State(state.clone()), Path(1), Form(rejected_form())).await,
+            model_delete(State(state), Path(1)).await,
+        ];
+        for result in results {
+            let response = result.unwrap_err().into_response();
+            assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    #[sqlx::test]
+    async fn missing_models_return_not_found_and_preserve_unsaved_edits(pool: PgPool) {
+        let state = AppState { pool: Arc::new(pool) };
+        let result = model_update(State(state.clone()), Path(999), Form(rejected_form())).await;
+        let body = error_body(result, StatusCode::NOT_FOUND, "#row-999", "outerHTML").await;
+        assert_entries_preserved(&body);
+        for result in [
+            model_detail(State(state.clone()), Path(999)).await,
+            model_edit_form(State(state.clone()), Path(999)).await,
+            model_video_row(State(state.clone()), Path(999), Query(VideoParams { kind: None })).await,
+            model_delete(State(state), Path(999)).await,
+        ] {
+            error_body(result, StatusCode::NOT_FOUND, "#request-error", "innerHTML").await;
+        }
+    }
+
     async fn prepare_id_sequence(pool: &PgPool, existing_id: Option<i32>) {
         let mut tx = pool.begin().await.unwrap();
         sqlx::raw_sql(include_str!("../migrations/0001_init.sql"))
@@ -636,7 +853,7 @@ mod tests {
             });
         }
         while let Some(result) = creates.join_next().await {
-            let Html(row) = result.unwrap();
+            let Html(row) = result.unwrap().unwrap();
             assert!(row.contains("<tr id=\"row-"));
         }
         let ids: Vec<i32> = sqlx::query_scalar(
@@ -652,7 +869,7 @@ mod tests {
         let Html(row) = model_create(State(state.clone()), Form(ModelForm {
             name: "first".into(),
             ..Default::default()
-        })).await;
+        })).await.unwrap();
         assert!(row.contains("<tr id=\"row-1\">"));
         let id: i32 = sqlx::query_scalar("SELECT id FROM models")
             .fetch_one(&*state.pool).await.unwrap();

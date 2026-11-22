@@ -5,6 +5,7 @@
     <title>{{ title }}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="https://unpkg.com/htmx.org@2.0.3"></script>
+    <script src="/static/js/request-errors.js" defer></script>
     <!-- ?v= forces browsers that cached app.css before /static sent Cache-Control to fetch it again -->
     <link rel="stylesheet" href="/static/css/app.css?v=2">
     <script>
@@ -41,6 +42,7 @@
     <button type="button" class="theme-toggle" onclick="toggleTheme()" title="Switch light/dark mode" aria-label="Switch light/dark mode">🌓</button>
 </header>
 <main>
+    <div id="request-error" role="alert" aria-live="assertive"></div>
     {% block content %}{% endblock %}
 </main>
 

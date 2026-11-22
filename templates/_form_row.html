@@ -1,6 +1,6 @@
 <tr id="row-{{ values.id.unwrap() }}">
-    <td colspan="8">
-        {% if error != "" %}<p class="muted">Error: {{ error }}</p>{% endif %}
+    <td colspan="10">
+        {% if error != "" %}<p role="alert">{{ error }}</p>{% endif %}
         <form
                 hx-put="/models/{{ values.id.unwrap() }}"
                 hx-target="#row-{{ values.id.unwrap() }}"
