@@ -338,7 +338,7 @@ async fn model_new_form() -> Html<String> {
 // CREATE (returns a single <tr> to append or errors as form)
 async fn model_create(
     State(state): State<AppState>,
-    Form(mut form): Form<ModelForm>,
+    Form(form): Form<ModelForm>,
 ) -> Html<String> {
     // naive validation
     if form.name.trim().is_empty() {
@@ -353,21 +353,13 @@ async fn model_create(
         }.render().unwrap());
     }
 
-    // if no id provided, auto-generate next id
-    if form.id.is_none() {
-        let (next_id,): (i64,) = sqlx::query_as("SELECT COALESCE(MAX(id)+1,1) FROM models")
-            .fetch_one(&*state.pool).await.unwrap();
-        form.id = Some(next_id as i32);
-    }
-
     let q = r#"
-        INSERT INTO models (id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,image_name, long_url, short_url)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        INSERT INTO models (name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,image_name, long_url, short_url)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
         RETURNING id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,image_name, long_url, short_url
     "#;
 
     let item: Model = sqlx::query_as(q)
-        .bind(form.id.unwrap())
         .bind(&form.name)
         .bind(&form.name_short)
         .bind(&form.description)
@@ -605,4 +597,72 @@ fn looks_like_mp4(u: &str) -> bool {
 
 fn is_plain_https(u: &str) -> bool {
     u.starts_with("https://") || u.starts_with("http://")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn prepare_id_sequence(pool: &PgPool, existing_id: Option<i32>) {
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::raw_sql(include_str!("../migrations/0001_init.sql"))
+            .execute(&mut *tx).await.unwrap();
+        if let Some(id) = existing_id {
+            sqlx::query("UPDATE models SET id = $1 WHERE id = 7")
+                .bind(id).execute(&mut *tx).await.unwrap();
+        } else {
+            sqlx::query("DELETE FROM models")
+                .execute(&mut *tx).await.unwrap();
+        }
+        sqlx::raw_sql(include_str!("../migrations/0003_models_id_sequence.sql"))
+            .execute(&mut *tx).await.unwrap();
+        tx.commit().await.unwrap();
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn concurrent_creates_use_ids_above_existing_rows(pool: PgPool) {
+        prepare_id_sequence(&pool, Some(1000)).await;
+        let state = AppState { pool: Arc::new(pool) };
+        let mut creates = tokio::task::JoinSet::new();
+        for _ in 0..16 {
+            let state = state.clone();
+            creates.spawn(async move {
+                model_create(State(state), Form(ModelForm {
+                    // A submitted ID must not override the database default.
+                    id: Some(1),
+                    name: "generated".into(),
+                    ..Default::default()
+                })).await
+            });
+        }
+        while let Some(result) = creates.join_next().await {
+            let Html(row) = result.unwrap();
+            assert!(row.contains("<tr id=\"row-"));
+        }
+        let ids: Vec<i32> = sqlx::query_scalar(
+            "SELECT id FROM models WHERE name = 'generated' ORDER BY id"
+        ).fetch_all(&*state.pool).await.unwrap();
+        assert_eq!(ids, (1001..=1016).collect::<Vec<_>>());
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn create_in_empty_table_starts_at_one(pool: PgPool) {
+        prepare_id_sequence(&pool, None).await;
+        let state = AppState { pool: Arc::new(pool) };
+        let Html(row) = model_create(State(state.clone()), Form(ModelForm {
+            name: "first".into(),
+            ..Default::default()
+        })).await;
+        assert!(row.contains("<tr id=\"row-1\">"));
+        let id: i32 = sqlx::query_scalar("SELECT id FROM models")
+            .fetch_one(&*state.pool).await.unwrap();
+        assert_eq!(id, 1);
+    }
+
+    #[test]
+    fn video_file_name_examples() {
+        assert_eq!(video_file_name("https://www.dropbox.com/scl/fi/abc/April01.mp4?rlkey=x&dl=0"), Some("April01.mp4"));
+        assert_eq!(video_file_name("/static/video/April01.mp4"), Some("April01.mp4"));
+        assert_eq!(video_file_name("https://example.com/page.html"), None);
+    }
 }

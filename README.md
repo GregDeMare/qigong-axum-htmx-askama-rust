@@ -30,13 +30,25 @@ The same code and data work locally and on a server. The database keeps the Drop
 - The **Local videos** page (`/videos`) and the icons in the models table show which files are offline (💾) or online-only (☁️).
 - New models: enter the Dropbox link. A plain `/static/video/<file>.mp4` path also works, but only on this Mac.
 
+## Tests
+
+The database tests create isolated databases, so use a PostgreSQL user with
+permission to create databases:
+
+```bash
+DATABASE_URL=postgresql://localhost/postgres cargo test
+```
+
 ## Data backup
 
 `backup/models.sql` is a data-only dump of the `models` table (2026-11-12). To restore it into a database whose schema the app has already created:
 
 ```bash
-psql "$DATABASE_URL" -c "TRUNCATE models;" -f backup/models.sql
+psql "$DATABASE_URL" -c "TRUNCATE models;" -f backup/models.sql \
+  -c "SELECT setval('models_id_seq', GREATEST(COALESCE(MAX(id), 1), 1), COALESCE(MAX(id), 0) >= 1) FROM models;"
 ```
+
+The final statement advances the ID sequence past the explicitly restored IDs.
 
 To refresh it:
 
