@@ -6,28 +6,7 @@
                 hx-put="/models/{{ values.id.unwrap() }}"
                 hx-target="#row-{{ values.id.unwrap() }}"
                 hx-swap="outerHTML">
-            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;">
-                <label>Name <input type="text" name="name" value="{{ values.name }}" required></label>
-                <label>Short <input type="text" name="name_short" value="{{ values.name_short }}" required></label>
-                <label>Score <input type="number" name="score" value="{{ values.score }}"></label>
-                <label>Score short <input type="number" name="score_short" value="{{ values.score_short }}"></label>
-                <label>#Times <input type="number" name="num_of_times" value="{{ values.num_of_times }}"></label>
-                <label>#Times short <input type="number" name="num_of_times_short" value="{{ values.num_of_times_short }}"></label>
-                <label>Image filename <input type="text" name="image_name" value="{{ values.image_name }}"></label>
-                <label>Long video (Dropbox link or /static/video/file.mp4)
-                    <input type="text" name="long_url" value="{{ values.long_url }}" placeholder="https://www.dropbox.com/…&dl=0" required>
-                </label>
-                <label>Short video (Dropbox link or /static/video/file.mp4)
-                    <input type="text" name="short_url" value="{{ values.short_url }}" placeholder="https://www.dropbox.com/…&dl=0" required>
-                </label>
-            </div>
-
-            <label>Description<br>
-                <textarea name="description" rows="3">{{ values.description }}</textarea>
-            </label>
-            <label>Comments<br>
-                <textarea name="comments" rows="2">{{ values.comments }}</textarea>
-            </label>
+            {% include "_model_fields.html" %}
 
             <div style="margin-top:.5rem;display:flex;gap:.5rem;">
                 <button type="submit">Save</button>

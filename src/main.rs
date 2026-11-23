@@ -157,7 +157,7 @@ fn render(template: impl Template) -> HandlerResult {
     })
 }
 
-fn create_form_error(status: StatusCode, form: &ModelForm, message: &'static str) -> HandlerResult {
+fn create_form_error(status: StatusCode, form: &ModelForm, message: &'static str, field_errors: FormErrors) -> HandlerResult {
     let body = render(FormTpl {
         action: "/models",
         method: "post",
@@ -166,12 +166,17 @@ fn create_form_error(status: StatusCode, form: &ModelForm, message: &'static str
         swap_mode: "beforeend",
         values: form,
         error: message,
+        field_errors,
+        field_prefix: "create".into(),
     })?;
     Err(RequestError { status, body, target: "#modal".into(), swap: "outerHTML" })
 }
 
-fn update_form_error(status: StatusCode, form: &ModelForm, message: &'static str) -> HandlerResult {
-    let body = render(FormRowTpl { values: form, error: message })?;
+fn update_form_error(status: StatusCode, form: &ModelForm, message: &'static str, field_errors: FormErrors) -> HandlerResult {
+    let body = render(FormRowTpl {
+        values: form, error: message, field_errors,
+        field_prefix: format!("edit-{}", form.id.unwrap()),
+    })?;
     Err(RequestError {
         status, body, target: format!("#row-{}", form.id.unwrap()), swap: "outerHTML",
     })
@@ -211,6 +216,73 @@ struct ModelForm {
     short_url: String,
 }
 
+#[derive(Debug, Default)]
+struct FormErrors {
+    name: &'static str,
+    name_short: &'static str,
+    num_of_times: &'static str,
+    num_of_times_short: &'static str,
+    long_url: &'static str,
+    short_url: &'static str,
+}
+
+impl FormErrors {
+    fn is_empty(&self) -> bool {
+        [self.name, self.name_short, self.num_of_times, self.num_of_times_short,
+            self.long_url, self.short_url].iter().all(|error| error.is_empty())
+    }
+}
+
+impl ModelForm {
+    fn validate(&self) -> FormErrors {
+        let mut errors = FormErrors::default();
+        if self.name.trim().is_empty() {
+            errors.name = "Name is required";
+        }
+        if self.name_short.trim().is_empty() {
+            errors.name_short = "Short name is required";
+        }
+        if self.num_of_times < 0 {
+            errors.num_of_times = "Play count must be zero or greater";
+        }
+        if self.num_of_times_short < 0 {
+            errors.num_of_times_short = "Play count must be zero or greater";
+        }
+        if !valid_video_url(self.long_url.trim()) {
+            errors.long_url = "Use an HTTP/HTTPS URL or /static/video/filename.mp4";
+        }
+        if !valid_video_url(self.short_url.trim()) {
+            errors.short_url = "Use an HTTP/HTTPS URL or /static/video/filename.mp4";
+        }
+        errors
+    }
+
+    fn normalize(&mut self) {
+        self.name = self.name.trim().to_owned();
+        self.name_short = self.name_short.trim().to_owned();
+        self.long_url = self.long_url.trim().to_owned();
+        self.short_url = self.short_url.trim().to_owned();
+    }
+}
+
+fn valid_video_url(value: &str) -> bool {
+    if value.chars().any(char::is_control) || value.contains('\\') {
+        return false;
+    }
+    if let Some(local) = value.strip_prefix("/static/video/") {
+        let file = local.split(['?', '#']).next().unwrap_or("");
+        let lower = file.to_ascii_lowercase();
+        return !file.contains('/') && !lower.contains("%2f") && !lower.contains("%5c")
+            && lower.ends_with(".mp4") && file.len() > 4;
+    }
+    let Some((scheme, authority)) = value.split_once("://") else { return false; };
+    if (!scheme.eq_ignore_ascii_case("https") && !scheme.eq_ignore_ascii_case("http"))
+        || authority.starts_with('/') || value.chars().any(char::is_whitespace) {
+        return false;
+    }
+    url::Url::parse(value).is_ok_and(|url| url.host_str().is_some())
+}
+
 #[derive(Template)]
 #[template(path = "models.html")]
 struct ModelsTpl<'a> {
@@ -233,6 +305,8 @@ struct RowTpl<'a> { m: &'a Model }
 struct FormRowTpl<'a> {
     values: &'a ModelForm,
     error: &'a str,
+    field_errors: FormErrors,
+    field_prefix: String,
 }
 #[derive(Template)]
 #[template(path = "detail.html")]
@@ -248,6 +322,8 @@ struct FormTpl<'a> {
     swap_mode: &'a str,      // "beforeend" (create) or "outerHTML" (edit)
     values: &'a ModelForm,   // your form values (ok to keep Option<i32> here; we won't render it)
     error: &'a str,
+    field_errors: FormErrors,
+    field_prefix: String,
 }
 
 #[derive(Template)]
@@ -422,18 +498,22 @@ async fn model_new_form() -> HandlerResult {
         swap_mode: "beforeend",     // ✅ append to #rows
         values: &empty,
         error: "",
+        field_errors: FormErrors::default(),
+        field_prefix: "create".into(),
     })
 }
 
 // CREATE (returns a single <tr> to append or errors as form)
 async fn model_create(
     State(state): State<AppState>,
-    Form(form): Form<ModelForm>,
+    Form(mut form): Form<ModelForm>,
 ) -> HandlerResult {
-    // naive validation
-    if form.name.trim().is_empty() {
-        return create_form_error(StatusCode::UNPROCESSABLE_ENTITY, &form, "Name is required");
+    let errors = form.validate();
+    if !errors.is_empty() {
+        return create_form_error(StatusCode::UNPROCESSABLE_ENTITY, &form,
+            "Please correct the highlighted fields.", errors);
     }
+    form.normalize();
 
     let q = r#"
         INSERT INTO models (name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,image_name, long_url, short_url)
@@ -460,7 +540,7 @@ async fn model_create(
         Err(error) => {
             error!(error = %error, "could not create model");
             create_form_error(StatusCode::INTERNAL_SERVER_ERROR, &form,
-                "Could not create the model. Your entries are preserved. Please try again.")
+                "Could not create the model. Your entries are preserved. Please try again.", FormErrors::default())
         }
     }
 }
@@ -490,7 +570,10 @@ async fn model_edit_form(
             long_url: i.long_url,
             short_url: i.short_url
         };
-        render(FormRowTpl { values: &values, error: "" })
+        render(FormRowTpl {
+            values: &values, error: "", field_errors: FormErrors::default(),
+            field_prefix: format!("edit-{id}"),
+        })
     } else {
         Err(RequestError::not_found())
     }
@@ -504,9 +587,12 @@ async fn model_update(
 ) -> HandlerResult {
     // The route identifies the row; the submitted form must not redirect a retry.
     form.id = Some(id);
-    if form.name.trim().is_empty() {
-        return update_form_error(StatusCode::UNPROCESSABLE_ENTITY, &form, "Name is required");
+    let errors = form.validate();
+    if !errors.is_empty() {
+        return update_form_error(StatusCode::UNPROCESSABLE_ENTITY, &form,
+            "Please correct the highlighted fields.", errors);
     }
+    form.normalize();
     let q = r#"
         UPDATE models SET
           name=$1, name_short=$2, description=$3, comments=$4,
@@ -533,11 +619,11 @@ async fn model_update(
     match result {
         Ok(Some(item)) => render(RowTpl { m: &item }),
         Ok(None) => update_form_error(StatusCode::NOT_FOUND, &form,
-            "This model no longer exists. Copy your entries before refreshing the list."),
+            "This model no longer exists. Copy your entries before refreshing the list.", FormErrors::default()),
         Err(error) => {
             error!(id, error = %error, "could not update model");
             update_form_error(StatusCode::INTERNAL_SERVER_ERROR, &form,
-                "Could not save the model. Your entries are preserved. Please try again.")
+                "Could not save the model. Your entries are preserved. Please try again.", FormErrors::default())
         }
     }
 }
@@ -696,6 +782,100 @@ fn is_plain_https(u: &str) -> bool {
 mod tests {
     use super::*;
 
+    fn valid_form() -> ModelForm {
+        ModelForm {
+            name: "Model".into(), name_short: "Short".into(),
+            long_url: "https://example.com/long.mp4".into(),
+            short_url: "/static/video/short.mp4".into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn video_url_validation_accepts_supported_links_and_rejects_malformed_values() {
+        for value in [
+            "https://www.dropbox.com/scl/fi/abc/April01.mp4?rlkey=x&dl=0",
+            "http://localhost:8000/static/video/April01.mp4",
+            "HTTPS://example.com/video.mp4", "/static/video/April01.mp4",
+            "/static/video/April 01.MP4", "/static/video/April%2001.mp4?download=1#start",
+        ] {
+            assert!(valid_video_url(value), "should accept: {value}");
+        }
+        for value in [
+            "", "not a URL", "javascript:alert(1)", "file:///tmp/video.mp4",
+            "ftp://example.com/video.mp4", "//example.com/video.mp4", "https://",
+            "https:///example.com/video.mp4", "https://example.com/video file.mp4",
+            "https://exa mple.com/video.mp4", "https://example.com/\nvideo.mp4",
+            "/static/video/", "/static/video/.mp4", "/static/video/page.html",
+            "/static/video/../other.mp4", "/static/video/%2fother.mp4",
+            "/static/video/%5cother.mp4", "/static/video/dir\\other.mp4",
+        ] {
+            assert!(!valid_video_url(value), "should reject: {value}");
+        }
+    }
+
+    #[sqlx::test]
+    async fn invalid_forms_preserve_all_fields_and_do_not_change_the_database(pool: PgPool) {
+        let state = AppState { pool: Arc::new(pool) };
+        let before: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM models")
+            .fetch_one(&*state.pool).await.unwrap();
+        let mut form = rejected_form();
+        form.name = "  ".into();
+        form.name_short = "\t".into();
+        form.num_of_times = -1;
+        form.num_of_times_short = -2;
+        form.long_url = "javascript:<script>".into();
+        form.short_url = "/static/video/../video.mp4".into();
+        for (result, target, prefix) in [
+            (model_create(State(state.clone()), Form(form.clone())).await, "#modal", "create"),
+            (model_update(State(state.clone()), Path(1), Form(form)).await, "#row-1", "edit-1"),
+        ] {
+            let body = error_body(result, StatusCode::UNPROCESSABLE_ENTITY, target, "outerHTML").await;
+            assert_eq!(body.matches("aria-invalid=\"true\"").count(), 6);
+            for field in ["name", "name-short", "times", "times-short", "long-url", "short-url"] {
+                assert!(body.contains(&format!("aria-describedby=\"{prefix}-{field}-error\"")));
+            }
+            for value in ["value=\"  \"", "value=\"-1\"", "value=\"-2\"", "Keep my description",
+                "Keep my comments", "image.png", "/static/video/../video.mp4", "javascript:"] {
+                assert!(body.contains(value), "missing preserved input: {value}");
+            }
+            assert!(!body.contains("<script>"));
+        }
+        let after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM models")
+            .fetch_one(&*state.pool).await.unwrap();
+        assert_eq!(before, after);
+        let item: Model = sqlx::query_as("SELECT * FROM models WHERE id = 1")
+            .fetch_one(&*state.pool).await.unwrap();
+        assert_eq!(item.name, "April01");
+        assert_eq!(item.num_of_times, 2);
+    }
+
+    #[sqlx::test]
+    async fn valid_creates_and_updates_trim_names_and_urls_without_changing_notes(pool: PgPool) {
+        let state = AppState { pool: Arc::new(pool) };
+        let mut form = valid_form();
+        form.name = "  Trimmed name  ".into();
+        form.name_short = "  Trimmed short  ".into();
+        form.long_url = "  https://example.com/video.mp4  ".into();
+        form.short_url = "  /static/video/Short.MP4  ".into();
+        form.description = "  Keep description spacing  ".into();
+        form.comments = "  Keep comment spacing  ".into();
+        let _ = model_create(State(state.clone()), Form(form.clone())).await.unwrap();
+        let _ = model_update(State(state.clone()), Path(1), Form(form)).await.unwrap();
+        let items: Vec<Model> = sqlx::query_as("SELECT * FROM models WHERE name = 'Trimmed name'")
+            .fetch_all(&*state.pool).await.unwrap();
+        assert_eq!(items.len(), 2);
+        for item in items {
+            assert_eq!(item.name_short, "Trimmed short");
+            assert_eq!(item.long_url, "https://example.com/video.mp4");
+            assert_eq!(item.short_url, "/static/video/Short.MP4");
+            assert_eq!(item.description, "  Keep description spacing  ");
+            assert_eq!(item.comments, "  Keep comment spacing  ");
+            assert_eq!(item.num_of_times, 0);
+            assert_eq!(item.num_of_times_short, 0);
+        }
+    }
+
     #[test]
     fn list_filters_accept_a_cleared_minimum_score() {
         for uri in ["/?q=April&min_score=&sort=name_desc", "/?q=April&sort=name_desc"] {
@@ -727,13 +907,13 @@ mod tests {
         let state = AppState { pool: Arc::new(pool) };
         for name in ["April12", "Other"] {
             let _ = model_create(State(state.clone()), Form(ModelForm {
-                name: name.into(), score: 5, ..Default::default()
+                name: name.into(), score: 5, ..valid_form()
             })).await.unwrap();
         }
         let created_id: i32 = sqlx::query_scalar("SELECT id FROM models WHERE name = 'April12'")
             .fetch_one(&*state.pool).await.unwrap();
         let _ = model_update(State(state.clone()), Path(1), Form(ModelForm {
-            name: "April01".into(), score: 0, ..Default::default()
+            name: "April01".into(), score: 0, ..valid_form()
         })).await.unwrap();
         let _ = model_delete(State(state.clone()), Path(2)).await.unwrap();
 
@@ -926,7 +1106,7 @@ mod tests {
                     // A submitted ID must not override the database default.
                     id: Some(1),
                     name: "generated".into(),
-                    ..Default::default()
+                    ..valid_form()
                 })).await
             });
         }
@@ -946,7 +1126,7 @@ mod tests {
         let state = AppState { pool: Arc::new(pool) };
         let Html(row) = model_create(State(state.clone()), Form(ModelForm {
             name: "first".into(),
-            ..Default::default()
+            ..valid_form()
         })).await.unwrap();
         assert!(row.contains("<tr id=\"row-1\">"));
         let id: i32 = sqlx::query_scalar("SELECT id FROM models")
