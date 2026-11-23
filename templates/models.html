@@ -3,10 +3,10 @@
 <h1>{{ title }}</h1>
 
 <div class="toolbar">
-    <form
+    <form id="model-filters"
             hx-get="/"
             hx-target="#rows"
-            hx-trigger="change, keyup delay:250ms from:find('input')"
+            hx-trigger="change, input delay:250ms"
             hx-push-url="true">
         <input type="text" name="q" value="{{ q_value }}" placeholder="Search name/desc">
         <input type="number" name="min_score" value="{{ min_score_value }}" placeholder="Min score">
@@ -24,10 +24,11 @@
     <button
             hx-get="/models/new"
             hx-target="#modal"
+            hx-push-url="false"
             hx-swap="outerHTML">New Model</button>
 </div>
 
-<table>
+<table hx-push-url="false">
     <thead>
     <tr>
         <th></th>
@@ -42,7 +43,12 @@
         <th></th>
     </tr>
     </thead>
-    <tbody id="rows">
+    <tbody id="rows"
+           hx-get="/"
+           hx-trigger="modelsChanged"
+           hx-include="#model-filters"
+           hx-target="this"
+           hx-swap="innerHTML">
     {% include "_rows.html" %}
     </tbody>
 </table>

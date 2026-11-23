@@ -41,6 +41,7 @@
                 hx-swap="outerHTML">Edit</button>
         <button
                 type="button"
+                data-model-mutation
                 hx-delete="/models/{{ m.id }}"
                 hx-confirm="Delete this model?"
                 hx-target="#row-{{ m.id }}"

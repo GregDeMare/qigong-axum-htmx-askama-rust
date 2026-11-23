@@ -4,7 +4,9 @@
         {% if error != "" %}<p role="alert">{{ error }}</p>{% endif %}
 
         <form
+                data-model-mutation
                 hx-{{ method }}="{{ action }}"
+                hx-push-url="false"
                 hx-target="#{{ target_id }}"
                 hx-swap="{{ swap_mode }}"
                 hx-on::after-request="if(event.detail.successful) document.getElementById('modal').classList.remove('open')">

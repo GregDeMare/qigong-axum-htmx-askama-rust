@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="https://unpkg.com/htmx.org@2.0.3"></script>
     <script src="/static/js/request-errors.js" defer></script>
+    <script src="/static/js/model-navigation.js" defer></script>
     <!-- ?v= forces browsers that cached app.css before /static sent Cache-Control to fetch it again -->
     <link rel="stylesheet" href="/static/css/app.css?v=2">
     <script>
@@ -35,7 +36,7 @@
         .modal > div { background: var(--surface); padding: 1rem; border-radius: 8px; width: min(720px, 92vw); }
     </style>
 </head>
-<body hx-boost="true" hx-push-url="true">
+<body hx-boost="true">
 <header>
     <a href="/">Home</a>
     <a href="/videos">Local videos</a>

@@ -180,8 +180,19 @@ fn update_form_error(status: StatusCode, form: &ModelForm, message: &'static str
 #[derive(Debug, Clone, Deserialize)]
 struct ListParams {
     q: Option<String>,
+    #[serde(default, deserialize_with = "optional_min_score")]
     min_score: Option<i32>,
     sort: Option<String>,
+}
+
+// HTML forms submit an empty value when the minimum-score filter is cleared.
+fn optional_min_score<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<i32>, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    if value.trim().is_empty() {
+        Ok(None)
+    } else {
+        value.parse().map(Some).map_err(serde::de::Error::custom)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -303,6 +314,7 @@ fn build_router(state: AppState) -> Router {
         .route("/models/new", get(model_new_form))
         .route("/models/{id}", get(model_detail).put(model_update).delete(model_delete))
         .route("/models/{id}/edit", get(model_edit_form))
+        .route("/models/{id}/row", get(model_row))
         .route("/models/{id}/video", get(model_video_row))
         .route("/videos", get(videos_list))
         .with_state(state)
@@ -387,6 +399,16 @@ async fn model_detail(State(state): State<AppState>, Path(id): Path<i32>) -> Han
         Some(item) => render(DetailTpl { title: "Model Detail", item: &item }),
         None => Err(RequestError::not_found()),
     }
+}
+
+// SINGLE ROW (restores the persisted values when an inline edit is cancelled)
+async fn model_row(State(state): State<AppState>, Path(id): Path<i32>) -> HandlerResult {
+    let item = sqlx::query_as::<_, Model>(
+        "SELECT id,name,name_short,description,comments,num_of_times,num_of_times_short,score,score_short,image_name,long_url,short_url FROM models WHERE id=$1"
+    ).bind(id).fetch_optional(&*state.pool).await
+        .map_err(|error| RequestError::database("restore model row", error))?
+        .ok_or_else(RequestError::not_found)?;
+    render(RowTpl { m: &item })
 }
 
 // NEW FORM (fragment)
@@ -674,6 +696,60 @@ fn is_plain_https(u: &str) -> bool {
 mod tests {
     use super::*;
 
+    #[test]
+    fn list_filters_accept_a_cleared_minimum_score() {
+        for uri in ["/?q=April&min_score=&sort=name_desc", "/?q=April&sort=name_desc"] {
+            let Query(params) = Query::<ListParams>::try_from_uri(&uri.parse().unwrap()).unwrap();
+            assert_eq!(params.q.as_deref(), Some("April"));
+            assert_eq!(params.min_score, None);
+            assert_eq!(params.sort.as_deref(), Some("name_desc"));
+        }
+        let Query(params) = Query::<ListParams>::try_from_uri(&"/?min_score=4".parse().unwrap()).unwrap();
+        assert_eq!(params.min_score, Some(4));
+        assert!(Query::<ListParams>::try_from_uri(&"/?min_score=invalid".parse().unwrap()).is_err());
+    }
+
+    #[sqlx::test]
+    async fn cancel_edit_returns_only_the_persisted_model_row(pool: PgPool) {
+        let state = AppState { pool: Arc::new(pool) };
+        let Html(form) = model_edit_form(State(state.clone()), Path(1)).await.unwrap();
+        assert!(form.contains("hx-get=\"/models/1/row\""));
+        let Html(row) = model_row(State(state), Path(1)).await.unwrap();
+        assert!(row.starts_with("<tr id=\"row-1\">"));
+        assert!(row.contains("April01"));
+        assert!(!row.contains("<form"));
+        assert!(!row.contains("<html"));
+        assert!(!row.contains("row-2\""));
+    }
+
+    #[sqlx::test]
+    async fn list_refresh_after_mutations_keeps_filters_and_sort_order(pool: PgPool) {
+        let state = AppState { pool: Arc::new(pool) };
+        for name in ["April12", "Other"] {
+            let _ = model_create(State(state.clone()), Form(ModelForm {
+                name: name.into(), score: 5, ..Default::default()
+            })).await.unwrap();
+        }
+        let created_id: i32 = sqlx::query_scalar("SELECT id FROM models WHERE name = 'April12'")
+            .fetch_one(&*state.pool).await.unwrap();
+        let _ = model_update(State(state.clone()), Path(1), Form(ModelForm {
+            name: "April01".into(), score: 0, ..Default::default()
+        })).await.unwrap();
+        let _ = model_delete(State(state.clone()), Path(2)).await.unwrap();
+
+        let mut headers = HeaderMap::new();
+        headers.insert("HX-Request", HeaderValue::from_static("true"));
+        headers.insert("HX-Target", HeaderValue::from_static("rows"));
+        let Html(rows) = models_list(State(state), headers, Query(ListParams {
+            q: Some("April".into()), min_score: Some(4), sort: Some("name_desc".into()),
+        })).await.unwrap();
+        let ids: Vec<i32> = rows.split("<tr id=\"row-").skip(1)
+            .map(|row| row.split('"').next().unwrap().parse().unwrap()).collect();
+        assert_eq!(ids, vec![8, 7, 6, created_id, 5, 4, 3]);
+        assert!(!rows.contains("<html"));
+        assert!(!rows.contains("Other"));
+    }
+
     async fn error_body(result: HandlerResult, status: StatusCode, target: &str, swap: &str) -> String {
         let response = result.unwrap_err().into_response();
         assert_eq!(response.status(), status);
@@ -791,6 +867,7 @@ mod tests {
                 q: None, min_score: None, sort: None,
             })).await,
             model_detail(State(state.clone()), Path(1)).await,
+            model_row(State(state.clone()), Path(1)).await,
             model_edit_form(State(state.clone()), Path(1)).await,
             model_video_row(State(state.clone()), Path(1), Query(VideoParams { kind: None })).await,
             videos_list(State(state.clone())).await,
@@ -812,6 +889,7 @@ mod tests {
         assert_entries_preserved(&body);
         for result in [
             model_detail(State(state.clone()), Path(999)).await,
+            model_row(State(state.clone()), Path(999)).await,
             model_edit_form(State(state.clone()), Path(999)).await,
             model_video_row(State(state.clone()), Path(999), Query(VideoParams { kind: None })).await,
             model_delete(State(state), Path(999)).await,
